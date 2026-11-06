@@ -1,0 +1,7 @@
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/uploads/
+data/secret.key
+__pycache__/
+*.pyc
