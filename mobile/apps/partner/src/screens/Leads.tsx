@@ -1,46 +1,260 @@
-import React, { useState } from 'react';
-import { Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
-  api, Button, Card, Chip, colors, ConfirmDialog, dateTime, EmptyState, ErrorState, font, GradientHeader, KeyValue, Loading, money, Notice,
-  Row, Screen, space, StatusBadge, TextField, Toggle, useAction, useNav, useOnRefocus, useQuery,
+  api, Badge, Button, Card, Chip, colors, ConfirmDialog, dateTime, EmptyState, ErrorState, font, GradientHeader, KeyValue, Loading, money, Notice,
+  radius, Row, Screen, space, StatusBadge, TextField, Toggle, useAction, useNav, useOnRefocus, useQuery,
 } from '@buzzer/core';
+
+type Lead = {
+  invitation_id: string; status: string; request_number: string; created_at: string; category_name: string; subcategory_name: string | null;
+  service_name: string | null; locality_name: string | null; quoted_amount: number | null; quote_status: string | null; revision_note: string | null;
+  handling_mode: string; item_count: number; line_items: string | null; answers: string | null; description: string | null; preferred_start: string | null;
+  priority: string; booking_mode: string; estimated_total: number | null;
+};
+
+const needsAction = (l: Lead) => l.status === 'INVITED' || l.quote_status === 'REVISION_REQUESTED';
 
 export function LeadsScreen() {
   const nav = useNav();
-  const [status, setStatus] = useState<string>('INVITED');
-  const q = useQuery(() => api.get<any[]>(`/api/v1/partner/leads${status ? `?status=${status}` : ''}`), [status]);
+  const [tab, setTab] = useState<'ACTION' | 'QUOTED' | 'CLOSED' | 'ALL'>('ACTION');
+  const q = useQuery(() => api.get<Lead[]>('/api/v1/partner/leads'));
   useOnRefocus(q.refresh);
+  const all = q.data ?? [];
+  const counts = {
+    ACTION: all.filter(needsAction).length,
+    QUOTED: all.filter((l) => l.status === 'QUOTED' && l.quote_status !== 'REVISION_REQUESTED').length,
+    CLOSED: all.filter((l) => ['CLOSED', 'DECLINED', 'EXPIRED'].includes(l.status)).length,
+    ALL: all.length,
+  };
+  const shown = all.filter((l) => tab === 'ALL' ? true : tab === 'ACTION' ? needsAction(l)
+    : tab === 'QUOTED' ? l.status === 'QUOTED' && l.quote_status !== 'REVISION_REQUESTED' : ['CLOSED', 'DECLINED', 'EXPIRED'].includes(l.status));
+
   return (
     <View style={{ flex: 1 }}>
-      <GradientHeader title="Leads" subtitle="Requests matching your approved services" />
+      <GradientHeader title="Leads" subtitle="Customers asking for your price — reply fast to win" />
       <Screen refreshing={q.refreshing} onRefresh={q.refresh}>
         <Row style={{ flexWrap: 'wrap' }}>
-          {[['INVITED', 'New'], ['QUOTED', 'Quoted'], ['CLOSED', 'Closed'], ['', 'All']].map(([k, l]) => <Chip key={k} label={l} selected={status === k} onPress={() => setStatus(k)} />)}
+          {([['ACTION', '🔔 Action needed'], ['QUOTED', 'Quoted'], ['CLOSED', 'Closed'], ['ALL', 'All']] as const).map(([k, label]) => (
+            <Chip key={k} label={`${label} (${counts[k]})`} selected={tab === k} onPress={() => setTab(k)} />
+          ))}
         </Row>
-        {q.loading ? <Loading /> : q.error ? <ErrorState message={q.error} onRetry={q.reload} /> : (q.data ?? []).length === 0 ? (
-          <EmptyState title="No leads here" message="New leads appear when a BUZZER agent invites you to quote." />
-        ) : (q.data ?? []).map((l) => (
-          <Card key={l.invitation_id} onPress={() => nav.push('LeadDetail', { lead: l })} accessibilityLabel={`Lead ${l.request_number}`}>
-            <Row style={{ justifyContent: 'space-between' }}>
-              <Text style={{ fontWeight: '700', color: colors.text, flex: 1 }}>{l.service_name || l.subcategory_name || l.category_name}</Text>
-              <StatusBadge status={l.status} />
-            </Row>
-            <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>#{l.request_number} • {l.locality_name ?? 'Location shared after assignment'} • {dateTime(l.created_at)}</Text>
-            {l.quoted_amount ? <Text style={{ color: colors.emerald, marginTop: 4, fontWeight: '600' }}>Your quote: {money(l.quoted_amount)}</Text> : null}
-          </Card>
-        ))}
+        {q.loading ? <Loading /> : q.error ? <ErrorState message={q.error} onRetry={q.reload} /> : shown.length === 0 ? (
+          <EmptyState title="No leads here" message="New quote requests from customers and agents appear here." />
+        ) : shown.map((l) => {
+          const isNew = l.status === 'INVITED';
+          const revision = l.quote_status === 'REVISION_REQUESTED';
+          return (
+            <Card key={l.invitation_id} onPress={() => nav.push('LeadDetail', { lead: l })} accessibilityLabel={`Lead ${l.request_number}`}
+              style={(isNew || revision) ? [styles.highlight, revision && { borderLeftColor: colors.warning }] : undefined}>
+              <Row style={{ justifyContent: 'space-between' }}>
+                <Text style={{ fontWeight: '800', color: colors.text, flex: 1 }}>{l.service_name || l.subcategory_name || l.category_name}</Text>
+                {isNew ? <Badge label="NEW" tone="success" /> : revision ? <Badge label="Revise quote" tone="warning" /> : <StatusBadge status={l.status} />}
+              </Row>
+              <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>
+                #{l.request_number} • {l.locality_name ?? 'Area shared after assignment'} • {dateTime(l.created_at)}
+              </Text>
+              <Row style={{ marginTop: 4, gap: space.sm }}>
+                {l.item_count ? <Text style={{ color: colors.forest, fontWeight: '700', fontSize: font.sm }}>🧾 {l.item_count} item{l.item_count === 1 ? '' : 's'}</Text> : null}
+                {l.handling_mode === 'AUTOMATED' ? <Text style={{ color: colors.textSecondary, fontSize: font.sm }}>⚡ Goes straight to the customer</Text> : null}
+              </Row>
+              {revision && l.revision_note ? <Text style={{ color: colors.warning, marginTop: 4 }}>Customer: “{l.revision_note}”</Text> : null}
+              {l.quoted_amount && !revision ? <Text style={{ color: colors.emerald, marginTop: 4, fontWeight: '600' }}>Your quote: {money(l.quoted_amount)}</Text> : null}
+            </Card>
+          );
+        })}
       </Screen>
     </View>
   );
 }
 
-export function LeadDetailScreen({ params }: { params: { lead: any } }) {
-  const nav = useNav();
+export function LeadDetailScreen({ params }: { params: { lead: Lead } }) {
   const l = params.lead;
-  const answers = l.answers ? JSON.parse(l.answers) : {};
   const lines: any[] = l.line_items ? JSON.parse(l.line_items) : [];
-  const listed = lines.length && lines.every((x) => x.line_total != null) ? String(lines.reduce((t, x) => t + Number(x.line_total), 0)) : '';
-  const [f, setF] = useState({ scope_of_work: lines.map((x) => `${x.quantity} x ${x.name}`).join(', '), labour_amount: listed, materials_amount: '', visit_fee: '', tax_amount: '', discount_amount: '',
+  return Array.isArray(lines) && lines.length ? <ItemQuoteScreen lead={l} /> : <StandardQuoteScreen lead={l} />;
+}
+
+// ----- Item-by-item quote (cart requests, e.g. hardware shops) ---------------------------------------------
+
+type LineDraft = { available: boolean; price: string; note: string };
+const ETA = [['2H', 'Within 2 hours'], ['TODAY', 'Today'], ['TOMORROW', 'Tomorrow']] as const;
+
+function etaDate(k: string): string | null {
+  const d = new Date();
+  if (k === '2H') return new Date(d.getTime() + 2 * 3600_000).toISOString();
+  if (k === 'TODAY') { d.setHours(20, 0, 0, 0); return d.toISOString(); }
+  if (k === 'TOMORROW') { d.setDate(d.getDate() + 1); d.setHours(13, 0, 0, 0); return d.toISOString(); }
+  return null;
+}
+
+function ItemQuoteScreen({ lead }: { lead: Lead }) {
+  const nav = useNav();
+  const q = useQuery(() => api.get<any>(`/api/v1/partner/leads/${lead.invitation_id}`), [lead.invitation_id]);
+  const act = useAction();
+  const [draft, setDraft] = useState<Record<string, LineDraft>>({});
+  const [delivery, setDelivery] = useState('');
+  const [eta, setEta] = useState<string>('TODAY');
+  const [note, setNote] = useState('');
+  const [pod, setPod] = useState(true);
+  const [done, setDone] = useState<string | null>(null);
+  const [declineOpen, setDeclineOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const d = q.data;
+  const mine = d?.my_quote;
+
+  // Pre-fill from the previous quote (when revising) or the suggested prices.
+  useEffect(() => {
+    if (!d) return;
+    const prev: Record<string, any> = {};
+    (mine?.line_items ?? []).forEach((x: any) => (prev[x.key] = x));
+    const next: Record<string, LineDraft> = {};
+    (d.line_items ?? []).forEach((x: any) => {
+      const p = prev[x.key];
+      const price = p?.unit_price ?? x.suggested_price;
+      next[x.key] = { available: p ? !!p.available : true, price: price == null ? '' : String(Number(price)), note: p?.note ?? '' };
+    });
+    setDraft(next);
+    if (mine) {
+      setDelivery(Number(mine.delivery_fee) ? String(Number(mine.delivery_fee)) : '');
+      setNote(mine.partner_note ?? '');
+      setPod(!!mine.pay_on_delivery_allowed);
+    }
+  }, [d]);
+
+  const totals = useMemo(() => {
+    let subtotal = 0;
+    let available = 0;
+    let missingPrice = false;
+    (d?.line_items ?? []).forEach((x: any) => {
+      const v = draft[x.key];
+      if (!v?.available) return;
+      available++;
+      const p = Number(v.price);
+      if (!v.price || !(p > 0)) missingPrice = true;
+      else subtotal += p * x.quantity;
+    });
+    const del = Number(delivery) || 0;
+    return { subtotal, available, missingPrice, total: subtotal + del };
+  }, [d, draft, delivery]);
+
+  const set = (k: string, patch: Partial<LineDraft>) => setDraft({ ...draft, [k]: { ...draft[k], ...patch } });
+
+  const submit = async () => {
+    const r = await act.run(() => api.post<any>(`/api/v1/partner/leads/${lead.invitation_id}/item-quote`, {
+      lines: (d.line_items ?? []).map((x: any) => ({
+        key: x.key, available: draft[x.key]?.available ?? false,
+        unit_price: draft[x.key]?.available ? Number(draft[x.key].price) : null, note: draft[x.key]?.note || null,
+      })),
+      delivery_fee: Number(delivery) || 0, estimated_arrival: etaDate(eta), partner_note: note || null, pay_on_delivery_allowed: pod,
+    }));
+    if (r) {
+      setDone(r.status === 'SHARED'
+        ? `${r.revision_no > 1 ? 'Revised quote' : 'Quote'} of ${money(r.total_amount)} sent straight to the customer. You'll be notified when they approve.`
+        : `Quote of ${money(r.total_amount)} sent to the BUZZER agent handling this request.`);
+      q.refresh();
+    }
+  };
+
+  const title = lead.subcategory_name || lead.category_name;
+  if (q.loading) return <View style={{ flex: 1 }}><GradientHeader title={title} onBack={nav.pop} /><Loading /></View>;
+  if (!d) return <View style={{ flex: 1 }}><GradientHeader title={title} onBack={nav.pop} /><Screen><ErrorState message={q.error ?? 'Not found'} onRetry={q.reload} /></Screen></View>;
+
+  return (
+    <View style={{ flex: 1 }}>
+      <GradientHeader title={title} subtitle={`#${d.request_number} • ${d.line_items.length} items`} onBack={nav.pop} />
+      <Screen footer={d.can_quote && !done ? (
+        <View style={{ gap: 6 }}>
+          <Row style={{ justifyContent: 'space-between' }}>
+            <Text style={{ color: colors.textSecondary }}>{totals.available} of {d.line_items.length} available</Text>
+            <Text style={{ fontWeight: '900', color: colors.forest, fontSize: font.lg }}>{money(totals.total)}</Text>
+          </Row>
+          <Button title={mine ? 'Send revised quote' : 'Send quote to customer'} loading={act.busy}
+            disabled={totals.available === 0 || totals.missingPrice} onPress={submit} />
+        </View>
+      ) : undefined}>
+        {mine?.status === 'REVISION_REQUESTED' ? (
+          <Notice tone="warning" message={`Customer asked you to revise: “${mine.revision_note}”. Update the items below and send again.`} />
+        ) : mine ? (
+          <Notice tone="success" message={`Your quote v${mine.revision_no} (${money(mine.total_amount)}) is ${mine.status === 'SHARED' ? 'with the customer' : mine.status.toLowerCase()}. You can still revise it until they approve.`} />
+        ) : null}
+        {done ? <Notice tone="success" message={done} /> : null}
+
+        <Card>
+          <KeyValue k="Area" v={d.locality_name ?? '—'} />
+          <KeyValue k="Needed by" v={d.preferred_start ? dateTime(d.preferred_start) : 'Flexible'} />
+          {d.description?.includes('Note:') ? <Text style={{ color: colors.text, marginTop: 4 }}>📝 {d.description.split('Note:')[1].trim()}</Text> : null}
+          <Text style={{ color: colors.textSecondary, fontSize: font.xs, marginTop: 6 }}>Mark each item available or not and set your price. Prices from your approved price list are pre-filled.</Text>
+        </Card>
+
+        {(d.line_items ?? []).map((x: any) => {
+          const v = draft[x.key] ?? { available: true, price: '', note: '' };
+          const lineTotal = v.available && Number(v.price) > 0 ? Number(v.price) * x.quantity : null;
+          return (
+            <Card key={x.key} style={!v.available ? { opacity: 0.75 } : undefined}>
+              <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: '800', color: colors.text }}>{x.quantity} × {x.name}</Text>
+                  {x.custom ? <Badge label="Extra item — not on menu" tone="info" /> : null}
+                  {x.customer_note ? <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>Customer: {x.customer_note}</Text> : null}
+                  {x.listed_price != null ? <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>BUZZER listed {money(x.listed_price)}{x.unit ? ` ${x.unit}` : ''}{x.my_price != null ? ` • your price ${money(x.my_price)}` : ''}</Text> : null}
+                </View>
+                <Text style={{ fontWeight: '800', color: v.available ? colors.forest : colors.textSecondary }}>{lineTotal != null ? money(lineTotal) : v.available ? '—' : 'N/A'}</Text>
+              </Row>
+              <Row style={{ marginTop: space.sm, gap: space.sm }}>
+                <Pressable accessibilityRole="button" onPress={() => set(x.key, { available: true })} style={[styles.toggle, v.available && styles.toggleOn]}>
+                  <Text style={[styles.toggleText, v.available && { color: colors.white }]}>✓ Available</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={() => set(x.key, { available: false })} style={[styles.toggle, !v.available && styles.toggleOff]}>
+                  <Text style={[styles.toggleText, !v.available && { color: colors.white }]}>✕ Not available</Text>
+                </Pressable>
+              </Row>
+              {v.available ? (
+                <Row style={{ marginTop: space.sm, gap: space.sm }}>
+                  <Text style={{ fontWeight: '700', color: colors.text }}>₹</Text>
+                  <TextInput value={v.price} onChangeText={(t) => set(x.key, { price: t.replace(/[^0-9.]/g, '') })} keyboardType="decimal-pad"
+                    placeholder="Price per unit" placeholderTextColor={colors.textSecondary} style={styles.input} accessibilityLabel={`Price for ${x.name}`} />
+                </Row>
+              ) : null}
+              <TextInput value={v.note} onChangeText={(t) => set(x.key, { note: t })} placeholder={v.available ? 'Brand / note (optional)' : 'Alternative or reason (optional)'}
+                placeholderTextColor={colors.textSecondary} style={[styles.input, { marginTop: 6, fontSize: font.sm }]} />
+            </Card>
+          );
+        })}
+
+        {d.can_quote ? (
+          <Card>
+            <Text style={{ fontWeight: '800', color: colors.text }}>Delivery</Text>
+            <Row style={{ flexWrap: 'wrap', marginVertical: space.sm }}>
+              {ETA.map(([k, label]) => <Chip key={k} label={label} selected={eta === k} onPress={() => setEta(k)} />)}
+            </Row>
+            <TextField label="Delivery charge ₹ (0 for free)" keyboardType="numeric" value={delivery} onChangeText={(t) => setDelivery(t.replace(/[^0-9.]/g, ''))} />
+            <TextField label="Note for the customer (optional)" value={note} onChangeText={setNote} placeholder="e.g. All branded items, GST bill provided" />
+            <Toggle label="Allow pay on delivery" value={pod} onChange={setPod} />
+            <Row style={{ justifyContent: 'space-between' }}>
+              <Text style={{ color: colors.textSecondary }}>Items {money(totals.subtotal)} + delivery {money(Number(delivery) || 0)}</Text>
+            </Row>
+          </Card>
+        ) : <Notice tone="info" message={`This lead is ${lead.status.toLowerCase()}.`} />}
+        {act.error ? <ErrorState message={act.error} /> : null}
+        {d.can_quote && !mine ? <Button title="Decline this lead" variant="ghost" onPress={() => setDeclineOpen(true)} /> : null}
+      </Screen>
+      <ConfirmDialog visible={declineOpen} title="Decline lead?" danger confirmLabel="Decline" loading={act.busy} onCancel={() => setDeclineOpen(false)}
+        onConfirm={async () => {
+          const ok = await act.run(() => api.post(`/api/v1/partner/leads/${lead.invitation_id}/decline`, { reason }));
+          setDeclineOpen(false);
+          if (ok) nav.pop();
+        }}>
+        <TextField label="Reason (optional)" value={reason} onChangeText={setReason} placeholder="e.g. Out of stock" />
+      </ConfirmDialog>
+    </View>
+  );
+}
+
+// ----- Standard quote (services with a requirement form) -----------------------------------------------------
+
+function StandardQuoteScreen({ lead: l }: { lead: Lead }) {
+  const nav = useNav();
+  const answers = l.answers ? JSON.parse(l.answers) : {};
+  const [f, setF] = useState({ scope_of_work: '', labour_amount: '', materials_amount: '', visit_fee: '', tax_amount: '', discount_amount: '',
     warranty: '', exclusions: '', cancellation_terms: '', pay_on_delivery_allowed: false, valid_hours: '48' });
   const [declineOpen, setDeclineOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -69,18 +283,6 @@ export function LeadDetailScreen({ params }: { params: { lead: any } }) {
           <KeyValue k="Preferred time" v={dateTime(l.preferred_start)} />
           <KeyValue k="Priority" v={l.priority} />
           {Object.entries(answers).map(([k, v]) => <KeyValue key={k} k={k.replace(/_/g, ' ')} v={Array.isArray(v) ? v.join(', ') : String(v)} />)}
-          {Array.isArray(lines) && lines.length ? (
-            <View style={{ marginTop: space.sm, padding: space.sm, borderRadius: 12, backgroundColor: colors.paleMint }}>
-              <Text style={{ fontWeight: "700", color: colors.forest, marginBottom: 4 }}>
-                {l.booking_mode === "SELF" ? "Customer booked at these listed prices" : "Requested items"}
-              </Text>
-              {lines.map((l: any) => (
-                <KeyValue key={l.service_item_id} k={`${l.quantity} × ${l.name}`} v={l.line_total == null ? "Quote" : (l.estimated ? "from " : "") + money(l.line_total)} />
-              ))}
-              {l.estimated_total != null ? <KeyValue k="Listed total" v={money(l.estimated_total)} /> : null}
-            </View>
-          ) : null}
-
           {l.description ? <Text style={{ marginTop: space.sm, color: colors.text }}>{l.description}</Text> : null}
           <Notice tone="neutral" message="Customer contact and full address are shared only after you are assigned and confirm the booking." />
         </Card>
@@ -129,3 +331,12 @@ export function LeadDetailScreen({ params }: { params: { lead: any } }) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  highlight: { borderLeftWidth: 5, borderLeftColor: colors.secondary, backgroundColor: colors.paleMint },
+  toggle: { flex: 1, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: 'center', backgroundColor: colors.white },
+  toggleOn: { backgroundColor: colors.emerald, borderColor: colors.emerald },
+  toggleOff: { backgroundColor: colors.textSecondary, borderColor: colors.textSecondary },
+  toggleText: { fontWeight: '700', color: colors.text, fontSize: font.sm },
+  input: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: 10, paddingVertical: 8, color: colors.text, backgroundColor: colors.white },
+});

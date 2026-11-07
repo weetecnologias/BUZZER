@@ -2,8 +2,30 @@ import React, { useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import {
   api, Badge, Button, callPhone, Card, colors, ConfirmDialog, dateTime, ErrorState, font, GradientHeader, KeyValue, Label, Loading, money,
-  newIdempotencyKey, Notice, radius, Row, Screen, space, StatusBadge, statusLabel, TextField, useAction, useNav, useOnRefocus, useQuery,
+  newIdempotencyKey, Notice, radius, Row, Screen, space, StatusBadge, statusLabel, TextField, Timeline, useAction, useNav, useOnRefocus, useQuery,
 } from '@buzzer/core';
+
+/** Item-by-item quote from a partner (direct "Get quotes" requests). */
+function ItemLines({ lines }: { lines: any[] }) {
+  return (
+    <View style={{ marginVertical: space.sm, borderRadius: radius.md, backgroundColor: colors.paleMint, padding: space.sm }}>
+      {lines.map((l) => (
+        <Row key={l.key} style={{ justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 3 }}>
+          <Text style={{ width: 20, color: l.available ? colors.success : colors.danger, fontWeight: '900' }}>{l.available ? '✓' : '✕'}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: l.available ? colors.text : colors.textSecondary, textDecorationLine: l.available ? 'none' : 'line-through' }}>
+              {l.quantity} × {l.name}{l.custom ? ' (extra)' : ''}
+            </Text>
+            {l.note ? <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>{l.note}</Text> : null}
+          </View>
+          <Text style={{ fontWeight: '700', color: l.available ? colors.text : colors.textSecondary }}>
+            {l.available ? `${money(l.unit_price)} × ${l.quantity} = ${money(l.line_total)}` : 'Not available'}
+          </Text>
+        </Row>
+      ))}
+    </View>
+  );
+}
 
 type Detail = Record<string, any>;
 
@@ -22,6 +44,8 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
   const [message, setMessage] = useState('');
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
+  const [revising, setRevising] = useState<any>(null);
+  const [revisionNote, setRevisionNote] = useState('');
   const acceptKey = useRef(newIdempotencyKey());
 
   const d = q.data;
@@ -53,6 +77,9 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
   const status: string = d.status;
   const quotations: any[] = d.quotations ?? [];
   const shared = quotations.filter((x) => x.status === 'SHARED' && !x.expired);
+  const awaitingRevision = quotations.filter((x) => x.status === 'REVISION_REQUESTED');
+  const automated = d.handling_mode === 'AUTOMATED' || d.booking_mode === 'DIRECT_QUOTE';
+  const cheapest = shared.length ? Math.min(...shared.map((x) => Number(x.total_amount))) : 0;
   const lastPayment = (d.payments ?? [])[0];
   const booking = d.booking;
   const pendingProposal = (d.reschedule_proposals ?? []).find((p: any) => p.status === 'PROPOSED' && p.proposed_role === 'PARTNER');
@@ -61,7 +88,7 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
     <View style={{ flex: 1 }}>
       <GradientHeader title={d.service_name || d.subcategory_name || d.category_name} subtitle={`#${d.request_number}`} onBack={nav.pop} />
       <Screen refreshing={q.refreshing} onRefresh={reload}>
-        {params.justCreated ? <Notice tone="success" message={`Request ${params.justCreated} submitted. Your agent has been notified.`} /> : null}
+        {params.justCreated ? <Notice tone="success" message={`Request ${params.justCreated} submitted. ${automated ? 'Verified partners are being asked for quotes.' : 'Your agent has been notified.'}`} /> : null}
         {d.created_via === 'AGENT_APP' && !d.customer_confirmed_at ? (
           <Card style={{ borderColor: colors.warning }}>
             <Text style={{ fontWeight: '700', color: colors.text }}>Your agent created this request for you</Text>
@@ -91,10 +118,12 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
           <Card>
             <Row style={{ justifyContent: 'space-between', marginBottom: space.sm }}>
               <Text style={{ fontWeight: '700', color: colors.text }}>Booked items</Text>
-              <Badge label={d.booking_mode === 'SELF' ? 'Booked at listed prices' : 'Agent arranging'} tone={d.booking_mode === 'SELF' ? 'success' : 'info'} />
+              <Badge label={d.booking_mode === 'SELF' ? 'Booked at listed prices' : d.booking_mode === 'DIRECT_QUOTE' ? 'Quotes from partners' : 'Agent arranging'}
+                tone={d.booking_mode === 'AGENT_ASSISTED' ? 'info' : 'success'} />
             </Row>
-            {d.line_items.map((l: any) => (
-              <KeyValue key={l.service_item_id} k={`${l.quantity} × ${l.name}`} v={l.line_total == null ? 'Quote' : (l.estimated ? 'from ' : '') + money(l.line_total)} />
+            {d.line_items.map((l: any, i: number) => (
+              <KeyValue key={l.key ?? l.service_item_id ?? i} k={`${l.quantity} × ${l.name}${l.custom ? ' (extra)' : ''}`}
+                v={l.line_total == null ? 'Quote' : (l.estimated ? 'from ' : 'listed ') + money(l.line_total)} />
             ))}
             {d.estimated_total != null ? <KeyValue k={d.has_quote_items ? 'Estimated total (+ quoted items)' : 'Estimated total'} v={money(d.estimated_total)} /> : null}
           </Card>
@@ -114,15 +143,29 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
                   <Text style={{ fontWeight: '800', fontSize: font.lg, color: colors.text, flex: 1 }}>{x.partner_name}</Text>
                   <Text style={{ fontWeight: '900', fontSize: font.xl, color: colors.forest }}>{money(x.total_amount)}</Text>
                 </Row>
-                <Row style={{ marginVertical: 4 }}>
-                  {i === 0 ? <Badge label="Lowest price" tone="success" /> : null}
+                <Row style={{ marginVertical: 4, flexWrap: 'wrap' }}>
+                  {shared.length > 1 && Number(x.total_amount) === cheapest ? <Badge label="Lowest price" tone="success" /> : null}
+                  {Array.isArray(x.line_items) && x.line_items.every((l: any) => l.available) ? <Badge label="All items available" tone="success" /> : null}
+                  {x.revision_no > 1 ? <Badge label={`Revised (v${x.revision_no})`} tone="info" /> : null}
                   {Number(x.rating_count) > 0 ? <Badge label={`★ ${x.rating_avg} (${x.rating_count})`} tone="info" /> : <Badge label="New partner" tone="neutral" />}
                 </Row>
-                <Text style={{ color: colors.text, marginVertical: space.sm }}>{x.scope_of_work}</Text>
-                <KeyValue k="Labour" v={money(x.labour_amount)} />
-                <KeyValue k="Materials" v={money(x.materials_amount)} />
-                <KeyValue k="Visit fee" v={money(x.visit_fee)} />
-                <KeyValue k="Taxes" v={money(x.tax_amount)} />
+                {Array.isArray(x.line_items) && x.line_items.length ? (
+                  <>
+                    <ItemLines lines={x.line_items} />
+                    <KeyValue k="Items" v={money(x.materials_amount)} />
+                    <KeyValue k="Delivery" v={Number(x.visit_fee) ? money(x.visit_fee) : 'Free'} />
+                    {x.estimated_arrival ? <KeyValue k="Delivery by" v={dateTime(x.estimated_arrival)} /> : null}
+                    {x.partner_note ? <Text style={{ color: colors.text, marginTop: 4 }}>💬 {x.partner_note}</Text> : null}
+                  </>
+                ) : (
+                  <>
+                    <Text style={{ color: colors.text, marginVertical: space.sm }}>{x.scope_of_work}</Text>
+                    <KeyValue k="Labour" v={money(x.labour_amount)} />
+                    <KeyValue k="Materials" v={money(x.materials_amount)} />
+                    <KeyValue k="Visit fee" v={money(x.visit_fee)} />
+                    <KeyValue k="Taxes" v={money(x.tax_amount)} />
+                  </>
+                )}
                 {Number(x.discount_amount) > 0 ? <KeyValue k="Discount" v={`- ${money(x.discount_amount)}`} /> : null}
                 {x.warranty ? <KeyValue k="Warranty" v={x.warranty} /> : null}
                 {x.exclusions ? <KeyValue k="Exclusions" v={x.exclusions} /> : null}
@@ -132,6 +175,9 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
                 <View style={{ gap: space.sm, marginTop: space.md }}>
                   <Button title="Accept & pay online" onPress={() => setAccepting({ quote: x, method: 'ONLINE' })} />
                   {x.pay_on_delivery_allowed ? <Button title="Accept & pay on delivery" variant="secondary" onPress={() => setAccepting({ quote: x, method: 'PAY_ON_DELIVERY' })} /> : null}
+                  {Array.isArray(x.line_items) && x.line_items.length ? (
+                    <Button title="✏️ Ask to revise (price, missing items, timing)" variant="outline" small onPress={() => { setRevisionNote(''); setRevising(x); }} />
+                  ) : null}
                   <Row>
                     <Button title="Ask a question" variant="outline" small style={{ flex: 1 }} onPress={async () => {
                       if (await act.run(() => api.post(`/api/v1/customer/requests/${params.id}/quotations/${x.id}/reject`, { reason: 'Please clarify the scope and price', clarification: true }))) reload();
@@ -145,8 +191,18 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
             ))}
           </>
         ) : ['REQUEST_CREATED', 'AGENT_REVIEW', 'PARTNER_QUOTATION'].includes(status) ? (
-          <Notice tone="info" message="Your agent is contacting verified partners and collecting quotations. You'll be notified as soon as they are ready." />
+          <Notice tone="info" message={d.handling_mode === 'AUTOMATED'
+            ? 'Sent to verified partners near you. Each one confirms availability and price for your items — quotes appear here as they arrive, usually within the hour.'
+            : d.handover_reason
+              ? `${d.agent_name ?? 'Our team'} is now finding the right partner for you (${d.handover_reason.toLowerCase()}).`
+              : 'Your agent is contacting verified partners and collecting quotations. You\'ll be notified as soon as they are ready.'} />
         ) : null}
+        {awaitingRevision.length && ['PARTNER_QUOTATION', 'CUSTOMER_APPROVAL'].includes(status) ? awaitingRevision.map((x) => (
+          <Card key={x.id} style={{ opacity: 0.8 }}>
+            <Text style={{ fontWeight: '700', color: colors.text }}>⏳ Waiting for {x.partner_name} to revise</Text>
+            <Text style={{ color: colors.textSecondary, fontSize: font.sm }}>You asked: “{x.revision_note}”</Text>
+          </Card>
+        )) : null}
 
         {/* Payment */}
         {status === 'PAYMENT_PENDING' && lastPayment ? (
@@ -266,15 +322,7 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
         {/* Timeline */}
         <Card>
           <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>Timeline</Text>
-          {(d.history ?? []).map((h: any, i: number) => (
-            <Row key={i} style={{ alignItems: 'flex-start', marginBottom: 8 }}>
-              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.secondary, marginTop: 5 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: '600', color: colors.text }}>{statusLabel(h.to_status)}</Text>
-                <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>{dateTime(h.created_at)}{h.reason ? ` • ${h.reason}` : ''}</Text>
-              </View>
-            </Row>
-          ))}
+          <Timeline history={d.history} />
         </Card>
 
         {CANCELLABLE.includes(status) ? <Button title="Cancel request" variant="ghost" onPress={() => setCancelOpen(true)} /> : null}
@@ -283,6 +331,18 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
       <ConfirmDialog visible={!!accepting} title="Confirm quotation" loading={act.busy}
         message={accepting ? `${accepting.quote.partner_name} • ${money(accepting.quote.total_amount)} • ${accepting.method === 'ONLINE' ? 'Pay online now' : 'Pay the partner on delivery'}` : ''}
         confirmLabel="Accept" onConfirm={doAccept} onCancel={() => setAccepting(null)} />
+      <ConfirmDialog visible={!!revising} title={`Ask ${revising?.partner_name ?? 'the partner'} to revise`} confirmLabel="Send" loading={act.busy}
+        message="They are notified and can send an updated quote. Other quotes stay open."
+        onCancel={() => setRevising(null)}
+        onConfirm={async () => {
+          if (revisionNote.trim().length < 3) return;
+          const ok = await act.run(() => api.post(`/api/v1/customer/requests/${params.id}/quotations/${revising.id}/revise`, { note: revisionNote.trim() }));
+          setRevising(null);
+          if (ok) reload();
+        }}>
+        <TextField label="What should change?" value={revisionNote} onChangeText={setRevisionNote} multiline
+          placeholder="e.g. Please include the ceiling roses / lower the delivery charge / deliver by 6 pm" />
+      </ConfirmDialog>
       <ConfirmDialog visible={cancelOpen} title="Cancel this request?" danger confirmLabel="Cancel request" loading={act.busy}
         message="If you have paid, refund eligibility is reviewed according to the cancellation policy." onCancel={() => setCancelOpen(false)}
         onConfirm={async () => {

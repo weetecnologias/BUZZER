@@ -30,7 +30,8 @@ public class CartController {
 
     public record QuantityInput(@Min(0) @Max(50) int quantity) {}
 
-    public record CheckoutBody(String mode, UUID addressId, OffsetDateTime preferredStart, @Size(max = 2000) String note) {}
+    public record CheckoutBody(String mode, UUID addressId, OffsetDateTime preferredStart, @Size(max = 2000) String note,
+                               @Size(max = 20) List<CartService.ExtraItem> extraItems) {}
 
     public record AgentRequestInput(@Size(max = 2000) String message, UUID categoryId, UUID addressId, OffsetDateTime preferredStart) {}
 
@@ -71,7 +72,7 @@ public class CartController {
     @PostMapping("/api/v1/customer/cart/checkout")
     public ApiResponse<List<RequestService.Created>> checkout(@Valid @RequestBody CheckoutBody in,
                                                              @RequestHeader(value = "Idempotency-Key", required = false) String key) {
-        return ApiResponse.of(cart.checkout(CurrentUser.id(), new CartService.CheckoutInput(in.mode(), in.addressId(), in.preferredStart(), in.note(), key)));
+        return ApiResponse.of(cart.checkout(CurrentUser.id(), new CartService.CheckoutInput(in.mode(), in.addressId(), in.preferredStart(), in.note(), key, in.extraItems())));
     }
 
     @PostMapping("/api/v1/customer/agent-request")

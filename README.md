@@ -67,6 +67,7 @@ The complete list is in [docs/developer-logins.xlsx](docs/developer-logins.xlsx)
 | Plumbers (approved + KYC verified) | 90000 00021 / 22 / 23 | Partner app |
 | Electrician | 90000 00024 | Partner app |
 | Pending partner | 90000 00025 | Partner app |
+| Hardware shop (Sri Sai Hardware) | 90000 00026 | Partner app — quotes "Get quotes" requests item by item |
 | Any other number | — | Customer app (sign up → Subscribe for a dedicated agent / Explore) / Partner app (registration) |
 
 Payments run on a **TEST MODE** gateway: the customer app shows "Simulate success / failure" buttons, which drive the
@@ -78,10 +79,10 @@ real signed-webhook code path. No real money moves and nothing pretends to be a 
 cd backend && mvn test
 ```
 
-41 integration tests against real PostgreSQL cover authentication and RBAC, the dynamic catalogue and form validation,
+44 integration tests against real PostgreSQL cover authentication and RBAC, the dynamic catalogue and form validation,
 the full plumbing flow from registration to settlement, concurrent exclusive assignment, payment failure/retry, webhook
 signatures and duplicates, SLA escalation, cancellation alerts, dead-lettering, commission precedence, refunds, cart and
-checkout, Excel imports, partner price lists and instant quotes, ticket transfers, and dedicated-agent subscription.
+checkout, Excel imports, partner price lists and instant quotes, ticket transfers, dedicated-agent subscription, and automated "Get quotes" straight from partners.
 See [`docs/phase-1-report.md`](docs/phase-1-report.md) for what is implemented, tested, in test mode, and still pending.
 
 ## Branching

@@ -80,7 +80,7 @@ All apps use **mobile number + OTP**. In the **dev profile only**, the OTP is re
 |---|---|---|
 | Admin | http://localhost:3000 | 9000000001 (Super Admin) |
 | Agent | http://localhost:8083 | 9000000010 (manager), 9000000011, 9000000012 |
-| Partner | http://localhost:8082 | 9000000021 – 9000000025 |
+| Partner | http://localhost:8082 | 9000000021 – 9000000026 (26 = Sri Sai Hardware, demo shop) |
 | Customer | http://localhost:8081 | any new number (sign-up flow) |
 
 ---
@@ -98,7 +98,7 @@ BUZZER/
 │   │   ├── agent/                   allocation, agent workspace APIs
 │   │   ├── partner/                 registration, KYC, price lists
 │   │   ├── request/                 request lifecycle (RequestStatus state machine)
-│   │   ├── quotation/               invitations, quotes, instant quotes
+│   │   ├── quotation/               invitations, quotes, instant quotes, direct quotes (automation)
 │   │   ├── assignment/ execution/   exclusive assignment, OTP start/complete
 │   │   ├── payment/ finance/        payments, ledger, commission, payouts
 │   │   ├── notification/            in-app, outbox, channel adapters
@@ -106,7 +106,7 @@ BUZZER/
 │   │   └── common/                  errors, audit, Excel, media, exports, settings
 │   ├── src/main/resources/
 │   │   ├── application*.yml         configuration (dev profile in application-dev.yml)
-│   │   ├── db/migration/            Flyway V1…V7 (production schema + reference data)
+│   │   ├── db/migration/            Flyway V1…V9 (production schema + reference data)
 │   │   └── db/devseed/              dev-only seed data (V1000+), never in production
 │   └── src/test/java/com/buzzer/    integration tests + LocalDevApplication
 ├── apps/admin-web/                  Next.js admin panel
@@ -154,7 +154,7 @@ Browse everything live at **http://localhost:8080/swagger-ui.html**.
 
 ### Add or change a database table
 
-1. Create the next migration: `backend/src/main/resources/db/migration/V8__short_description.sql`.
+1. Create the next migration: `backend/src/main/resources/db/migration/V10__short_description.sql`.
 2. **Never edit a migration that has already been merged** — always add a new one.
 3. Restart the backend; Flyway applies it. Tests run all migrations on a fresh DB.
 4. Dev-only data goes in `db/devseed/V10xx__…sql` (loaded only by the dev profile; `out-of-order` is enabled there).
@@ -201,7 +201,7 @@ Admin → **Finance** → *Excel upload*: download the rate sheet, fill `new_rat
 cd backend && mvn test
 ```
 
-**41 integration tests** run against a real embedded PostgreSQL 17 (no mocks of the database):
+**44 integration tests** run against a real embedded PostgreSQL 17 (no mocks of the database):
 
 | Suite | Covers |
 |---|---|
@@ -213,6 +213,7 @@ cd backend && mvn test
 | `CartCheckoutTest` | Cart, wishlist, checkout modes, idempotent checkout |
 | `AdminToolsTest` | Media upload, catalogue & commission Excel, export injection guard, price lists → instant quotes, transfers |
 | `AgentSubscriptionTest` | Welcome state, explore → on-duty agent, language-matched subscription |
+| `DirectQuoteFlowTest` | "Get quotes": cart + extra items → automatic dispatch to shops, item quote, customer revision, approval; agent NEW highlight + take over; automatic hand-over when partners decline or don't quote |
 
 Test helpers: `support/ApiClient` (`login` auto-subscribes new customers; `loginOnly` doesn't), `support/FlowHelper`
 (drives a request to customer approval).

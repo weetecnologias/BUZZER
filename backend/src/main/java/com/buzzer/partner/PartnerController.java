@@ -50,11 +50,14 @@ public class PartnerController {
     private final LedgerService ledger;
     private final JdbcClient jdbc;
     private final PartnerPriceService prices;
+    private final com.buzzer.quotation.DirectQuoteService directQuotes;
 
     public record PriceListInput(List<PartnerPriceService.PriceInput> prices) {}
 
     public PartnerController(PartnerService partners, QuotationService quotations, AssignmentService assignments,
-                             ExecutionService execution, LedgerService ledger, JdbcClient jdbc, PartnerPriceService prices) {
+                             ExecutionService execution, LedgerService ledger, JdbcClient jdbc, PartnerPriceService prices,
+                             com.buzzer.quotation.DirectQuoteService directQuotes) {
+        this.directQuotes = directQuotes;
         this.prices = prices;
         this.partners = partners;
         this.quotations = quotations;
@@ -134,8 +137,23 @@ public class PartnerController {
     @PostMapping("/leads/{invitationId}/decline")
     @PreAuthorize("hasRole('PARTNER')")
     public ApiResponse<Map<String, Object>> declineLead(@PathVariable UUID invitationId, @RequestBody ReasonInput in) {
-        quotations.decline(invitationId, partners.partnerIdFor(CurrentUser.id()), in.reason());
+        UUID requestId = quotations.decline(invitationId, partners.partnerIdFor(CurrentUser.id()), in.reason());
+        directQuotes.afterDecline(requestId);
         return ApiResponse.of(Map.of("declined", true));
+    }
+
+    /** One lead with every requested item, the partner's suggested prices and their latest quote. */
+    @GetMapping("/leads/{invitationId}")
+    @PreAuthorize("hasRole('PARTNER')")
+    public ApiResponse<Map<String, Object>> lead(@PathVariable UUID invitationId) {
+        return ApiResponse.of(directQuotes.leadDetail(invitationId, partners.partnerIdFor(CurrentUser.id())));
+    }
+
+    /** Item-by-item quote (availability + price per item, delivery fee). Submitting again revises the quote. */
+    @PostMapping("/leads/{invitationId}/item-quote")
+    @PreAuthorize("hasRole('PARTNER')")
+    public ApiResponse<Map<String, Object>> itemQuote(@PathVariable UUID invitationId, @RequestBody com.buzzer.quotation.DirectQuoteService.ItemQuoteInput in) {
+        return ApiResponse.of(directQuotes.submitItemQuote(invitationId, partners.partnerIdFor(CurrentUser.id()), CurrentUser.id(), in));
     }
 
     @GetMapping("/assignments")

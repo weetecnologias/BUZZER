@@ -62,19 +62,37 @@ flowchart TD
     F --> M[Agent matched automatically<br/>e.g. 'Priya — speaks Malayalam & English']
     W -->|Explore the app first| H[Home]
     M --> H
-    H --> B1[Browse menu with prices<br/>e.g. Fan repair ₹149]
+    H --> B1[Browse menu with prices<br/>e.g. LED bulb ₹99, Fan repair ₹149]
     H --> B2[Write to my agent<br/>free text]
     H --> B3[Special request<br/>anything else]
-    B1 --> CART[Cart → Checkout]
-    CART -->|Book now at listed prices| R[Request created]
-    CART -->|Send to my agent| R
-    B2 --> R
-    B3 --> R
-    R --> Q[Agent gets quotes from verified partners]
-    Q --> AP[Customer approves a quote and pays<br/>online or pay-on-delivery]
-    AP --> J[Partner arrives → START OTP → work → COMPLETE OTP]
+    B1 --> CART[Cart + extra items<br/>not on the menu]
+    CART -->|Get quotes — everyone| DQ[🤖 Sent automatically to the best<br/>verified partners, e.g. hardware shops]
+    CART -->|Send to my agent — subscribers| AG[Dedicated agent collects quotes]
+    B2 --> AG
+    B3 --> AG
+    DQ --> PQ[Each partner marks every item<br/>available / not available + price]
+    PQ --> CQ[Quotes reach the customer instantly]
+    AG --> CQ
+    CQ -->|Ask to revise| PQ
+    CQ --> AP[Customer approves a quote and pays<br/>online or pay-on-delivery]
+    AP --> J[Partner delivers / does the job<br/>OTP-verified]
     J --> D[Invoice, rating, settlement]
 ```
+
+### Two ways to get things done
+
+| | **🏪 Get quotes** (everyone) | **🎧 Send to my agent** (subscribers only) |
+|---|---|---|
+| Who handles it | Nobody manually — BUZZER sends it to the best verified partners automatically | The customer's dedicated agent |
+| What the customer does | Adds menu items (and extra items not on the menu), taps *Get quotes*, compares, approves, pays | Describes the need; the agent does the rest |
+| What partners do | Mark each item available / not available, set prices (pre-filled from their approved price list), add delivery charge and time | Quote when the agent invites them |
+| Revisions | Customer taps *Ask to revise* with a note; the partner sends an updated version | Through the agent |
+| Agent's role | Subscribers' agents **watch** these tickets (marked 🤖 Automated) and can take over | Drives the whole request |
+| If nobody can quote | Handed to an agent **automatically** (no partner available, all decline, or no quote within 60 minutes) | — |
+
+*Example:* a customer needs 4 LED bulbs, 6 switches, an MCB and 3 ceiling roses (not on the menu). They tap *Get quotes*;
+two local shops receive it within seconds; one replies "3 of 4 items available, ₹911 incl. ₹30 delivery, by 6 pm"; the
+customer asks it to add the ceiling roses, gets a revised quote, approves, pays on delivery — and the shop delivers.
 
 ### Dedicated agent vs Explore
 
@@ -110,6 +128,11 @@ partner), clear earnings, and fast payouts.
 **Instant quotes:** once a partner's prices are approved, an agent can create a quotation for a customer in **one
 tap** from that partner's price list — no waiting for the partner to reply.
 
+**Shops (e.g. hardware stores):** for *Get quotes* requests the partner sees every item the customer wants — including
+extras not on the menu — with their own price pre-filled. They tick available / not available, adjust prices, add a
+delivery charge and time, and send. The quote goes straight to the customer; new leads and revision requests are
+highlighted at the top of the Leads screen.
+
 ---
 
 ## 5. The agent's role (the heart of BUZZER)
@@ -129,6 +152,12 @@ An agent:
 If an agent misses an SLA or goes on leave, the request **escalates automatically**: backup agent → best available
 agent → manager. Admins see every breach in **Operational exceptions**.
 
+**Less manual work.** Agents are for subscribers and for the cases automation can't solve. The agent's ticket inbox is
+split into **🆕 New** (never opened — highlighted with a green bar and NEW tag), **⚡ Needs action**, **🤖 Automated**
+(running on their own; the agent just watches), **💬 With customer**, **🛠️ In progress** and **✅ Closed**. Every
+ticket shows its SLA countdown, whether it was handed over and why, and a plain-language **timeline** of how it moved —
+created, sent to partners, quotes received, revisions, transfers, payment, delivery — with automatic steps marked 🤖.
+
 ---
 
 ## 6. What we offer — the service catalogue
@@ -137,7 +166,7 @@ agent → manager. Admins see every breach in **Operational exceptions**.
 
 | Group | Categories |
 |---|---|
-| Home | Home Repairs & Maintenance (electrician, plumber, AC & appliance, cleaning & pest control, painting, carpentry…), Home Shifting & Setup, Household & Family Assistance, Security & Safety |
+| Home | Home Repairs & Maintenance (electrician, plumber, AC & appliance, cleaning & pest control, painting, carpentry…), Hardware & Supplies (hardware, electrical, plumbing and paint items from local shops), Home Shifting & Setup, Household & Family Assistance, Security & Safety |
 | Daily life | Daily Errands & Shopping, Delivery & Logistics, Shopping & Product Sourcing, Vehicle Services |
 | Travel & leisure | Travel & Transport (bus, train, flights, holiday & international packages, hotels), Tickets & Reservations, Dining & Entertainment (exclusive deals, restaurants, play zones) |
 | Celebrations | Events & Celebrations (birthday, haldi, half-saree…), Wedding & Catering, Photography & Videography |
@@ -211,7 +240,10 @@ Every list can be **exported to Excel, CSV or PDF**.
 
 | Area | Status |
 |---|---|
-| Four apps + backend, end-to-end service flow | ✅ Working, tested (41 automated backend tests) |
+| Four apps + backend, end-to-end service flow | ✅ Working, tested (44 automated backend tests) |
+| **Get quotes** straight from partners (item availability, revisions, auto hand-over to agents) | ✅ Working |
+| Agent inbox with NEW highlights, automated tickets and readable timelines | ✅ Working |
+| Hardware & Supplies category (example of shops quoting items) | ✅ Seeded with sample items |
 | Dedicated-agent subscription & language matching | ✅ Working |
 | Priced menus, cart, wishlist, checkout, write-to-agent | ✅ Working |
 | Partner price lists → admin approval → instant quotes | ✅ Working |

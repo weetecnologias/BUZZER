@@ -22,8 +22,10 @@ import java.util.UUID;
  * Prices are always computed on the server from the live catalogue (never from the client). Checkout turns the
  * cart into one service request per subcategory - each subcategory is fulfilled by a different kind of partner -
  * with a price snapshot of every line. The customer chooses how to proceed:
- *   SELF            "Book now at listed prices": the agent only assigns a verified partner at those prices;
- *   AGENT_ASSISTED  "Send to my agent": the agent reviews, suggests alternatives and collects quotations.
+ *   DIRECT_QUOTE    "Get quotes": sent straight to verified partners, who confirm availability and price per item
+ *                   (customers may add extra items that are not on the menu). No agent work - see DirectQuoteService;
+ *   AGENT_ASSISTED  "Send to my agent" (subscribers only): the dedicated agent reviews and collects quotations;
+ *   SELF            legacy "Book now at listed prices" (agent assigns a partner at those prices).
  */
 @Service
 public class CartService {
@@ -31,7 +33,14 @@ public class CartService {
     private static final Set<String> CART_WORKFLOWS = Set.of("MENU_DRIVEN", "EVENT_BRIEF", "CATEGORY_SPECIAL_REQUEST", "API_PRICED");
     private static final Set<String> ESTIMATE_TYPES = Set.of("STARTING_FROM", "VISIT_PLUS_LABOUR", "RANGE");
 
-    public record CheckoutInput(String mode, UUID addressId, OffsetDateTime preferredStart, String note, String idempotencyKey) {}
+    public record ExtraItem(UUID subcategoryId, String name, Integer quantity, String note) {}
+
+    public record CheckoutInput(String mode, UUID addressId, OffsetDateTime preferredStart, String note, String idempotencyKey,
+                                List<ExtraItem> extraItems) {
+        public CheckoutInput(String mode, UUID addressId, OffsetDateTime preferredStart, String note, String idempotencyKey) {
+            this(mode, addressId, preferredStart, note, idempotencyKey, List.of());
+        }
+    }
 
     private record Line(UUID cartItemId, UUID serviceItemId, String name, int quantity, String pricingType, BigDecimal basePrice,
                         BigDecimal minPrice, BigDecimal maxPrice, BigDecimal originalPrice, String dealLabel, String unit,
@@ -40,10 +49,12 @@ public class CartService {
 
     private final JdbcClient jdbc;
     private final RequestService requests;
+    private final com.buzzer.quotation.DirectQuoteService directQuotes;
 
-    public CartService(JdbcClient jdbc, RequestService requests) {
+    public CartService(JdbcClient jdbc, RequestService requests, com.buzzer.quotation.DirectQuoteService directQuotes) {
         this.jdbc = jdbc;
         this.requests = requests;
+        this.directQuotes = directQuotes;
     }
 
     /** Unit price used for estimates; null means the item is priced by quotation. */
@@ -161,7 +172,24 @@ public class CartService {
     @Transactional
     public List<RequestService.Created> checkout(UUID customer, CheckoutInput in) {
         String mode = in.mode() == null ? "" : in.mode();
-        if (!List.of("SELF", "AGENT_ASSISTED").contains(mode)) throw BusinessException.invalid("Choose 'Book now' or 'Send to my agent'");
+        if (!List.of("DIRECT_QUOTE", "AGENT_ASSISTED", "SELF").contains(mode)) throw BusinessException.invalid("Choose 'Get quotes' or 'Send to my agent'");
+        if ("AGENT_ASSISTED".equals(mode)) {
+            String plan = jdbc.sql("SELECT agent_plan FROM customer_profiles WHERE user_id = :u").param("u", customer).query(String.class).optional().orElse(null);
+            if (!"DEDICATED".equals(plan)) {
+                throw BusinessException.invalid("'Send to my agent' is for customers with a dedicated agent. Subscribe for free, or choose 'Get quotes'.");
+            }
+        }
+        List<ExtraItem> extras = in.extraItems() == null ? List.of() : in.extraItems();
+        if (!extras.isEmpty() && "SELF".equals(mode)) throw BusinessException.invalid("Extra items need a quote - choose 'Get quotes'");
+        if (extras.size() > 20) throw BusinessException.invalid("Add at most 20 extra items");
+        for (ExtraItem x : extras) {
+            if (x == null || x.name() == null || x.name().trim().length() < 2 || x.name().trim().length() > 120) {
+                throw BusinessException.invalid("Each extra item needs a name (2-120 characters)");
+            }
+            int q = x.quantity() == null ? 1 : x.quantity();
+            if (q < 1 || q > 999) throw BusinessException.invalid("Extra item quantity must be between 1 and 999");
+            if (x.note() != null && x.note().length() > 200) throw BusinessException.invalid("Extra item notes must be 200 characters or less");
+        }
         if (in.idempotencyKey() == null || in.idempotencyKey().isBlank() || in.idempotencyKey().length() > 80) {
             throw BusinessException.invalid("Idempotency-Key header is required");
         }
@@ -179,6 +207,13 @@ public class CartService {
 
         Map<UUID, List<Line>> bySub = new LinkedHashMap<>();
         for (Line l : lines) bySub.computeIfAbsent(l.subcategoryId(), k -> new ArrayList<>()).add(l);
+        // Extra items go with the menu group they belong to (or the only group in the cart).
+        Map<UUID, List<ExtraItem>> extrasBySub = new LinkedHashMap<>();
+        for (ExtraItem x : extras) {
+            UUID sub = x.subcategoryId() != null ? x.subcategoryId() : bySub.size() == 1 ? bySub.keySet().iterator().next() : null;
+            if (sub == null || !bySub.containsKey(sub)) throw BusinessException.invalid("Choose which part of your cart '" + x.name().trim() + "' belongs to");
+            extrasBySub.computeIfAbsent(sub, k -> new ArrayList<>()).add(x);
+        }
 
         List<RequestService.Created> created = new ArrayList<>();
         int index = 0;
@@ -204,12 +239,34 @@ public class CartService {
                 if (!summary.isEmpty()) summary.append(", ");
                 summary.append(l.quantity()).append(" x ").append(l.name());
             }
+            int extraNo = 0;
+            for (ExtraItem x : extrasBySub.getOrDefault(group.getFirst().subcategoryId(), List.of())) {
+                Map<String, Object> li = new LinkedHashMap<>();
+                li.put("key", "extra:" + (++extraNo));
+                li.put("custom", true);
+                li.put("name", x.name().trim());
+                li.put("quantity", x.quantity() == null ? 1 : x.quantity());
+                li.put("unit", null);
+                li.put("pricing_type", "QUOTE_REQUIRED");
+                li.put("unit_price", null);
+                li.put("line_total", null);
+                li.put("note", x.note() == null || x.note().isBlank() ? null : x.note().trim());
+                lineItems.add(li);
+                hasQuote = true;
+                summary.append(", ").append(x.quantity() == null ? 1 : x.quantity()).append(" x ").append(x.name().trim()).append(" (extra)");
+            }
             Line first = group.getFirst();
             String description = summary + (in.note() == null || in.note().isBlank() ? "" : "\nNote: " + in.note().trim());
-            created.add(requests.create(new RequestService.CreateCommand(customer, customer, "CUSTOMER_APP", first.categoryId(),
-                    first.subcategoryId(), group.size() == 1 ? first.serviceItemId() : null, in.addressId(), Map.of(), description,
+            RequestService.Created c = requests.create(new RequestService.CreateCommand(customer, customer, "CUSTOMER_APP", first.categoryId(),
+                    first.subcategoryId(), group.size() == 1 && lineItems.size() == 1 ? first.serviceItemId() : null, in.addressId(), Map.of(), description,
                     in.preferredStart(), null, "NORMAL", in.idempotencyKey() + "#" + (index++), null, mode, lineItems,
-                    total.setScale(2, RoundingMode.HALF_UP), hasQuote, true)));
+                    total.setScale(2, RoundingMode.HALF_UP), hasQuote, true));
+            if ("DIRECT_QUOTE".equals(mode) && !c.duplicate()) {
+                directQuotes.dispatch(c.id());
+                c = new RequestService.Created(c.id(), c.requestNumber(),
+                        jdbc.sql("SELECT status FROM service_requests WHERE id = :id").param("id", c.id()).query(String.class).single(), false);
+            }
+            created.add(c);
         }
         clear(customer);
         return created;

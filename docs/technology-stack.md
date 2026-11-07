@@ -107,7 +107,7 @@ flowchart LR
 |---|---|
 | **Git + GitHub** | Source control; feature branches + pull requests (never push to `main`) |
 | **GitHub Actions** | CI: backend tests, admin production build, mobile typecheck + web bundles ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) |
-| **JUnit 5 + Spring Boot Test + MockMvc** | 41 integration tests against real PostgreSQL |
+| **JUnit 5 + Spring Boot Test + MockMvc** | 44 integration tests against real PostgreSQL |
 | **Docker / Docker Compose** | [`infra/docker-compose.yml`](../infra/docker-compose.yml) for a containerised stack |
 | **Kubernetes** | Reference manifest [`infra/k8s/backend.yaml`](../infra/k8s/backend.yaml) (replicas, probes, resources) |
 | **EditorConfig** | Consistent formatting across editors |

@@ -151,8 +151,11 @@ public class PartnerService {
                 SELECT i.id AS invitation_id, i.invitation_number, i.status, i.created_at, r.id AS request_id, r.request_number,
                        r.description, r.preferred_start, r.priority, c.name AS category_name, s.name AS subcategory_name, i2.name AS service_name,
                        l.name AS locality_name, r.answers::text AS answers, r.line_items::text AS line_items, r.estimated_total, r.booking_mode,
-                       (SELECT q.id FROM quotations q WHERE q.invitation_id = i.id ORDER BY q.created_at DESC LIMIT 1) AS quotation_id,
-                       (SELECT q.total_amount FROM quotations q WHERE q.invitation_id = i.id ORDER BY q.created_at DESC LIMIT 1) AS quoted_amount
+                       (SELECT q.id FROM quotations q WHERE q.invitation_id = i.id AND q.status <> 'REVISED' ORDER BY q.created_at DESC LIMIT 1) AS quotation_id,
+                       (SELECT q.total_amount FROM quotations q WHERE q.invitation_id = i.id AND q.status <> 'REVISED' ORDER BY q.created_at DESC LIMIT 1) AS quoted_amount,
+                       (SELECT q.status FROM quotations q WHERE q.invitation_id = i.id AND q.status <> 'REVISED' ORDER BY q.created_at DESC LIMIT 1) AS quote_status,
+                       (SELECT q.revision_note FROM quotations q WHERE q.invitation_id = i.id AND q.status = 'REVISION_REQUESTED' ORDER BY q.created_at DESC LIMIT 1) AS revision_note,
+                       r.handling_mode, COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(r.line_items) = 'array' THEN r.line_items END), 0) AS item_count
                 FROM partner_invitations i JOIN service_requests r ON r.id = i.request_id JOIN categories c ON c.id = r.category_id
                 LEFT JOIN subcategories s ON s.id = r.subcategory_id LEFT JOIN service_items i2 ON i2.id = r.service_item_id
                 LEFT JOIN localities l ON l.id = r.locality_id

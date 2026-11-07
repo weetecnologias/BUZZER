@@ -11,3 +11,4 @@ export * from './ServicePicker';
 export * from './glyphs';
 export * from './Notifications';
 export * from './contact';
+export * from './Timeline';

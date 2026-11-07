@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import {
   api, Badge, Button, callPhone, openWhatsApp, Card, colors, ConfirmDialog, dateTime, ErrorState, font, GradientHeader, KeyValue, Loading, money, Notice, radius,
-  preferenceLines, Row, Screen, space, StatusBadge, statusLabel, TextField, useAction, useNav, useOnRefocus, useQuery,
+  preferenceLines, Row, Screen, space, StatusBadge, statusLabel, TextField, Timeline, useAction, useNav, useOnRefocus, useQuery,
 } from '@buzzer/core';
 
 export function AgentRequestScreen({ params }: { params: { id: string } }) {
@@ -45,6 +45,18 @@ export function AgentRequestScreen({ params }: { params: { id: string } }) {
     <View style={{ flex: 1 }}>
       <GradientHeader title={d.service_name || d.subcategory_name || d.category_name} subtitle={`#${d.request_number}`} onBack={nav.pop} />
       <Screen refreshing={q.refreshing} onRefresh={reload}>
+        {d.handling_mode === 'AUTOMATED' ? (
+          <Card style={{ borderLeftWidth: 5, borderLeftColor: colors.secondary, backgroundColor: colors.paleMint }}>
+            <Text style={{ fontWeight: '800', color: colors.forest }}>🤖 Running automatically</Text>
+            <Text style={{ color: colors.text, marginTop: 4 }}>
+              Sent straight to verified partners. Their quotes go directly to {d.customer_name ?? 'the customer'}, who approves and pays. Nothing to do unless you want to step in.
+            </Text>
+            <Button title="Take over this ticket" small variant="outline" style={{ marginTop: space.sm, alignSelf: 'flex-start' }} loading={act.busy}
+              onPress={async () => { if (await act.run(() => api.post(`/api/v1/agent/requests/${params.id}/take-over`, {}))) reload(); }} />
+          </Card>
+        ) : d.handed_to_agent_at ? (
+          <Notice tone="warning" message={`Handed to you automatically: ${d.handover_reason}. Source partners and share quotes.`} />
+        ) : null}
         <Card>
           <Row style={{ justifyContent: 'space-between' }}>
             <Text style={{ fontWeight: '800', color: colors.text, fontSize: font.lg }}>{d.customer_name ?? 'Customer'}</Text>
@@ -65,10 +77,11 @@ export function AgentRequestScreen({ params }: { params: { id: string } }) {
           {Array.isArray(d.line_items) && d.line_items.length ? (
             <View style={{ marginTop: space.sm, padding: space.sm, borderRadius: 12, backgroundColor: colors.paleMint }}>
               <Text style={{ fontWeight: "700", color: colors.forest, marginBottom: 4 }}>
-                {d.booking_mode === "SELF" ? "Customer booked at listed prices — assign a partner at these rates" : d.booking_mode === "AGENT_DIRECT" ? "Written directly to you" : "Customer asked you to arrange / quote"}
+                {d.booking_mode === "SELF" ? "Customer booked at listed prices — assign a partner at these rates" : d.booking_mode === "AGENT_DIRECT" ? "Written directly to you" : d.booking_mode === "DIRECT_QUOTE" ? "Customer asked partners for quotes" : "Customer asked you to arrange / quote"}
               </Text>
-              {d.line_items.map((l: any) => (
-                <KeyValue key={l.service_item_id} k={`${l.quantity} × ${l.name}`} v={l.line_total == null ? "Quote" : (l.estimated ? "from " : "") + money(l.line_total)} />
+              {d.line_items.map((l: any, i: number) => (
+                <KeyValue key={l.key ?? l.service_item_id ?? i} k={`${l.quantity} × ${l.name}${l.custom ? ' (extra, not on menu)' : ''}`}
+                  v={l.line_total == null ? "Quote" : (l.estimated ? "from " : "") + money(l.line_total)} />
               ))}
               {d.estimated_total != null ? <KeyValue k="Estimated total" v={money(d.estimated_total) + (d.has_quote_items ? " + quoted items" : "")} /> : null}
             </View>
@@ -213,12 +226,8 @@ export function AgentRequestScreen({ params }: { params: { id: string } }) {
         </Card>
 
         <Card>
-          <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>Audit timeline</Text>
-          {(d.history ?? []).map((h: any, i: number) => (
-            <Text key={i} style={{ color: colors.text, fontSize: font.sm, marginBottom: 4 }}>
-              {dateTime(h.created_at)} — {statusLabel(h.to_status)} {h.actor_role ? `(${h.actor_role})` : ''}{h.reason ? ` • ${h.reason}` : ''}
-            </Text>
-          ))}
+          <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>Timeline — how this ticket moved</Text>
+          <Timeline history={d.history} initial={8} />
         </Card>
       </Screen>
 

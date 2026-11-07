@@ -18,7 +18,8 @@ public enum RequestStatus {
     private static final Map<RequestStatus, Set<RequestStatus>> ALLOWED = new EnumMap<>(RequestStatus.class);
 
     static {
-        allow(REQUEST_CREATED, AGENT_REVIEW, CANCELLED, REJECTED);
+        // PARTNER_QUOTATION directly: automated direct-quote requests go straight to partners.
+        allow(REQUEST_CREATED, AGENT_REVIEW, PARTNER_QUOTATION, CANCELLED, REJECTED);
         allow(AGENT_REVIEW, PARTNER_QUOTATION, CANCELLED, REJECTED);
         allow(PARTNER_QUOTATION, CUSTOMER_APPROVAL, AGENT_REVIEW, CANCELLED, EXPIRED);
         allow(CUSTOMER_APPROVAL, PAYMENT_PENDING, PARTNER_ASSIGNED, PARTNER_QUOTATION, CANCELLED, EXPIRED);

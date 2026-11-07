@@ -75,7 +75,7 @@ flowchart LR
 | `agent` | Agent allocation & language matching, portfolios, agent workspace APIs |
 | `partner` | Registration, terms, KYC, capabilities, service areas, eligibility, **price lists** |
 | `request` | Request creation, 24-state lifecycle state machine, history, messages, SLA |
-| `quotation` | Invitations, quotations, sharing, **instant quotes from price lists** |
+| `quotation` | Invitations, quotations, sharing, **instant quotes from price lists**, **direct quotes** (`DirectQuoteService`: automatic dispatch to partners, item-by-item quotes, revisions, automatic hand-over to agents) |
 | `assignment` | Exclusive assignment (exactly one partner), decline/cancel, reassignment |
 | `execution` | Booking, arrival, START/COMPLETE OTPs, reschedules, overrides |
 | `payment` | Payment orders, provider adapter, webhooks, retries, pay-on-delivery |
@@ -97,10 +97,16 @@ sequenceDiagram
     actor A as Agent
     actor P as Partner(s)
     C->>API: Checkout cart / submit request (Idempotency-Key)
-    API->>API: Validate form, address, city availability<br/>pick dedicated or on-duty agent
+    API->>API: Validate form, address, city availability
+    alt "Get quotes" (DIRECT_QUOTE, handling AUTOMATED)
+        API-->>P: Sent automatically to the best verified partners
+        P->>API: Item-by-item quote (available? price) + delivery fee
+        API-->>C: Quote shared instantly (customer may ask to revise)
+    else "Send to my agent" (subscribers) / write to agent
     API-->>A: Notification: new request (SLA clock starts)
     A->>API: Acknowledge (first response)
-    alt Partner has approved price list
+    end
+    alt Agent path and partner has approved price list
         A->>API: Create instant quote
     else
         A->>API: Invite eligible partners
@@ -121,6 +127,7 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> REQUEST_CREATED
     REQUEST_CREATED --> AGENT_REVIEW
+    REQUEST_CREATED --> PARTNER_QUOTATION: Get quotes (automatic)
     AGENT_REVIEW --> PARTNER_QUOTATION
     PARTNER_QUOTATION --> CUSTOMER_APPROVAL
     CUSTOMER_APPROVAL --> PAYMENT_PENDING
@@ -166,6 +173,27 @@ flowchart TD
 If nobody is available, the customer stays subscribed, an `NO_AGENT_AVAILABLE` exception is raised for admins, and
 allocation is retried on the next request.
 
+## 4b. Direct quotes ("Get quotes") — automation instead of manual agent work
+
+```mermaid
+flowchart TD
+    CO["Checkout: menu items + extra items<br/>mode DIRECT_QUOTE"] --> RQ["Request created<br/>handling_mode = AUTOMATED<br/>agent = subscriber's agent, watch only, or none"]
+    RQ --> EL{Eligible verified partners?}
+    EL -->|none| HO["Hand to agent automatically<br/>dedicated agent, else on-duty agent<br/>+ ops exception"]
+    EL -->|yes| DS["Invite top N partners<br/>setting direct_quote.max_partners = 5<br/>ranked by price-list coverage, rating, workload"]
+    DS --> PQ["Partner: per item available? + price<br/>pre-filled from approved price list, delivery fee/time"]
+    PQ --> SH["Quote status SHARED immediately<br/>request → CUSTOMER_APPROVAL"]
+    SH -->|Ask to revise| RV["Quote → REVISION_REQUESTED<br/>partner resubmits → new version, old → REVISED"]
+    RV --> SH
+    SH --> AC["Customer accepts + pays → exclusive assignment"]
+    DS -->|all partners decline| HO
+    DS -->|no quote within direct_quote.no_quote_minutes = 60| HO
+```
+
+Every automatic step is written to `request_status_history` with actor role `SYSTEM` (status changes via
+`RequestRepository.transition`, non-status events via `RequestRepository.note`), which the apps show as a timeline.
+The agent inbox orders tickets by *never opened* (`agent_seen_at IS NULL`) first, then agent work, then the rest.
+
 ---
 
 ## 5. Data model (main tables)
@@ -202,7 +230,9 @@ Migrations (`backend/src/main/resources/db/migration`):
 | V5 | Rich priced menus (repairs, events, travel, dining…) |
 | V6 | Menu groups, partner price lists, media library, agent wings |
 | V7 | Dedicated-agent subscription (plan, preferences), request `agent_source` |
-| `db/devseed` V1000–V1001 | **Dev/test only** staff, partners and deals — never loaded in production |
+| V8 | Direct quotes: `handling_mode` (AGENT / AUTOMATED), agent `agent_seen_at` (NEW highlight), hand-over fields, item-level quotation lines + revisions, settings, **Hardware & Supplies** example category |
+| V9 | Timeline entries use real clock time so steps in one transaction stay in order |
+| `db/devseed` V1000–V1002 | **Dev/test only** staff, partners, deals and a demo hardware shop — never loaded in production |
 
 ---
 

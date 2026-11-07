@@ -83,7 +83,9 @@ public class RequestService {
                 ? (cmd.answers() == null ? Map.of() : cmd.answers())
                 : forms.validateAnswers(ctx.formSchema(), cmd.answers());
         String bookingMode = cmd.bookingMode() == null ? "AGENT_ASSISTED" : cmd.bookingMode();
-        if (!List.of("SELF", "AGENT_ASSISTED", "AGENT_DIRECT").contains(bookingMode)) throw BusinessException.invalid("Invalid booking mode");
+        if (!List.of("SELF", "AGENT_ASSISTED", "AGENT_DIRECT", "DIRECT_QUOTE").contains(bookingMode)) throw BusinessException.invalid("Invalid booking mode");
+        // DIRECT_QUOTE: partners quote straight to the customer; the subscriber's agent (if any) only watches.
+        boolean automated = "DIRECT_QUOTE".equals(bookingMode);
         if (cmd.description() != null && cmd.description().length() > 4000) throw BusinessException.invalid("Description too long");
         if (cmd.preferredStart() != null && cmd.preferredEnd() != null && cmd.preferredEnd().isBefore(cmd.preferredStart())) {
             throw BusinessException.invalid("Preferred end time must be after the start time");
@@ -115,8 +117,8 @@ public class RequestService {
         if (available == 0) throw BusinessException.invalid("This service is not yet available in your city");
 
         UUID agentId = allocation.activeLink(cmd.customerUserId(), "PRIMARY").orElse(null);
-        String agentSource = "DEDICATED";
-        if (agentId == null) {
+        String agentSource = agentId == null && automated ? "NONE" : "DEDICATED";
+        if (agentId == null && !automated) {
             String plan = jdbc.sql("SELECT agent_plan FROM customer_profiles WHERE user_id = :u").param("u", cmd.customerUserId())
                     .query(String.class).optional().orElse(null);
             // Subscribed but no agent was free at the time: try again now.
@@ -136,12 +138,13 @@ public class RequestService {
                 INSERT INTO service_requests(request_number, customer_user_id, created_by_user_id, created_via, consent_method,
                   consent_at, customer_confirmed_at, category_id, subcategory_id, service_item_id, city_id, locality_id, address_id,
                   address_snapshot, answers, description, preferred_start, preferred_end, priority, status, agent_id,
-                  first_agent_response_at, sla_due_at, idempotency_key, booking_mode, line_items, estimated_total, has_quote_items, agent_source)
+                  first_agent_response_at, sla_due_at, idempotency_key, booking_mode, line_items, estimated_total, has_quote_items, agent_source,
+                  handling_mode)
                 VALUES (:num, :cust, :by, :via, CAST(:consent AS text), CASE WHEN CAST(:consent AS text) IS NULL THEN NULL ELSE now() END,
                   CASE WHEN :byAgent THEN NULL ELSE now() END, :cat, :sub, :svc, :city, :loc, :addr, CAST(:snap AS jsonb),
                   CAST(:answers AS jsonb), :desc, :ps, :pe, :prio, :status, :agent,
                   CASE WHEN :byAgent THEN now() ELSE NULL END, now() + make_interval(mins => :sla), :key,
-                  :mode, CAST(:lines AS jsonb), :est, :hasQuote, :agentSource)
+                  :mode, CAST(:lines AS jsonb), :est, :hasQuote, :agentSource, :handling)
                 RETURNING id""")
                 .param("num", number).param("cust", cmd.customerUserId()).param("by", cmd.createdBy()).param("via", cmd.createdVia())
                 .param("consent", cmd.consentMethod()).param("byAgent", byAgent).param("cat", ctx.categoryId())
@@ -150,7 +153,8 @@ public class RequestService {
                 .param("desc", cmd.description()).param("ps", cmd.preferredStart()).param("pe", cmd.preferredEnd())
                 .param("prio", priority).param("status", status).param("agent", agentId).param("sla", slaMinutes)
                 .param("key", cmd.idempotencyKey()).param("mode", bookingMode).param("lines", json.write(cmd.lineItems()))
-                .param("est", cmd.estimatedTotal()).param("hasQuote", cmd.hasQuoteItems()).param("agentSource", agentSource).query(UUID.class).single();
+                .param("est", cmd.estimatedTotal()).param("hasQuote", cmd.hasQuoteItems()).param("agentSource", agentSource)
+                .param("handling", automated ? "AUTOMATED" : "AGENT").query(UUID.class).single();
         jdbc.sql("""
                 INSERT INTO request_status_history(request_id, from_status, to_status, actor_user_id, actor_role, reason)
                 VALUES (:r, NULL, :s, :a, :role, :reason)""")
@@ -159,6 +163,8 @@ public class RequestService {
                         : switch (bookingMode) {
                             case "SELF" -> "Customer booked menu items at listed prices";
                             case "AGENT_DIRECT" -> "Customer wrote directly to their agent";
+                            case "DIRECT_QUOTE" -> "Customer asked verified partners for quotes";
+                            case "AGENT_ASSISTED" -> "Customer sent the request to their agent";
                             default -> "Submitted by customer";
                         })
                 .update();
@@ -170,8 +176,9 @@ public class RequestService {
                     "Please review the details and confirm or correct them in the app.", "REQUEST_CONFIRMATION", "REQUEST", id);
         } else {
             notifications.notifyUser(cmd.customerUserId(), "Request " + number + " received",
-                    "Your BUZZER agent will review it shortly.", "REQUEST_CREATED", "REQUEST", id);
-            if (agentId != null) {
+                    automated ? "We are sending it to verified partners now. Quotes will appear in the app as they arrive."
+                            : "Your BUZZER agent will review it shortly.", "REQUEST_CREATED", "REQUEST", id);
+            if (agentId != null && !automated) {
                 UUID agentUser = jdbc.sql("SELECT user_id FROM agents WHERE id = :a").param("a", agentId).query(UUID.class).single();
                 notifications.notifyUser(agentUser, "New request " + number, switch (bookingMode) {
                             case "SELF" -> "Customer booked at listed prices - assign a verified partner.";
@@ -245,7 +252,9 @@ public class RequestService {
                 WHERE (r.agent_id = :a OR r.escalated_to_agent_id = :a
                        OR (:mgr AND r.agent_id IN (SELECT id FROM agents WHERE manager_id = :a)))
                   AND (CAST(:s AS text) IS NULL OR r.status = CAST(:s AS text))
-                ORDER BY CASE WHEN r.first_agent_response_at IS NULL THEN 0 ELSE 1 END, r.sla_due_at NULLS LAST, r.created_at DESC
+                ORDER BY CASE WHEN r.agent_seen_at IS NULL AND r.agent_id = :a THEN 0
+                              WHEN r.handling_mode = 'AGENT' AND r.first_agent_response_at IS NULL THEN 1 ELSE 2 END,
+                         r.updated_at DESC
                 LIMIT :l""").param("a", agentId).param("mgr", manager).param("s", status).param("l", Math.min(limit, 500))
                 .query().listOfRows();
     }

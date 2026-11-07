@@ -9,7 +9,7 @@ const GLYPHS: Record<string, string> = {
   flower: '🌼', saree: '🥻', dish: '🍛', building: '🏛️', video: '🎥', image: '🖼️', drone: '🚁', calculator: '🧮', chart: '📈',
   steering: '🧑‍✈️', hotel: '🏨', beach: '🏖️', map: '🗺️', globe: '🌍', passport: '🛂', fitness: '🧘', stethoscope: '🩺',
   flask: '🧪', book: '📚', graduation: '🎓', broom: '🧹', bike: '🏍️', users: '👥', send: '📮', search: '🔎', clipboard: '📋',
-  calendar: '📅',
+  calendar: '📅', store: '🏪', bulb: '💡', paint: '🎨', nut: '🔩',
 };
 
 export function glyph(icon?: string | null): string {

@@ -59,6 +59,15 @@ public class RequestRepository {
                 "reason", reason == null ? "" : reason));
     }
 
+    /** Timeline entry without a status change (e.g. "quote received", "transferred", "handed to agent"). */
+    public void note(UUID requestId, String status, UUID actor, String role, String reason) {
+        jdbc.sql("""
+                INSERT INTO request_status_history(request_id, from_status, to_status, actor_user_id, actor_role, reason)
+                VALUES (:r, :s, :s, :a, :role, :reason)""")
+                .param("r", requestId).param("s", status).param("a", actor).param("role", role).param("reason", reason).update();
+        jdbc.sql("UPDATE service_requests SET updated_at = now() WHERE id = :r").param("r", requestId).update();
+    }
+
     public List<Map<String, Object>> history(UUID requestId) {
         return jdbc.sql("""
                 SELECT h.from_status, h.to_status, h.actor_role, h.reason, h.created_at, u.full_name AS actor_name
@@ -83,6 +92,10 @@ public class RequestRepository {
     public static final String LIST_SELECT = """
             SELECT r.id, r.request_number, r.status, r.priority, r.created_at, r.updated_at, r.preferred_start, r.description,
                    r.created_via, r.booking_mode, r.estimated_total, r.sla_due_at, r.first_agent_response_at, r.escalated_at, r.customer_confirmed_at,
+                   r.handling_mode, r.agent_source, r.agent_seen_at, r.handed_to_agent_at, r.handover_reason,
+                   COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(r.line_items) = 'array' THEN r.line_items END), 0) AS item_count,
+                   (SELECT max(h.created_at) FROM request_status_history h WHERE h.request_id = r.id) AS last_activity_at,
+                   (SELECT count(*) FROM quotations q WHERE q.request_id = r.id AND q.status = 'SHARED') AS open_quote_count,
                    c.name AS category_name, c.icon AS category_icon, s.name AS subcategory_name, i.name AS service_name,
                    cu.full_name AS customer_name, cu.phone AS customer_phone, a.display_name AS agent_name,
                    l.name AS locality_name,

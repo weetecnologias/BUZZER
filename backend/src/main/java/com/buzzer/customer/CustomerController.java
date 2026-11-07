@@ -71,10 +71,13 @@ public class CustomerController {
     private final JdbcClient jdbc;
     private final String supportPhone;
     private final AgentSubscriptionService subscriptions;
+    private final com.buzzer.quotation.DirectQuoteService directQuotes;
 
     public CustomerController(CustomerService customers, RequestService requestService, RequestRepository requests,
                               QuotationService quotations, PaymentService payments, ExecutionService execution, JdbcClient jdbc,
-                              @Value("${buzzer.support.phone:+914000000000}") String supportPhone, AgentSubscriptionService subscriptions) {
+                              @Value("${buzzer.support.phone:+914000000000}") String supportPhone, AgentSubscriptionService subscriptions,
+                              com.buzzer.quotation.DirectQuoteService directQuotes) {
+        this.directQuotes = directQuotes;
         this.subscriptions = subscriptions;
         this.customers = customers;
         this.requestService = requestService;
@@ -213,6 +216,15 @@ public class CustomerController {
     public ApiResponse<Map<String, Object>> accept(@PathVariable UUID id, @PathVariable UUID quotationId, @Valid @RequestBody AcceptInput in,
                                                    @RequestHeader("Idempotency-Key") String key) {
         return ApiResponse.of(payments.acceptQuotation(id, quotationId, CurrentUser.id(), in.paymentMethod(), key));
+    }
+
+    public record RevisionInput(@Size(max = 500) String note) {}
+
+    /** Ask the partner to change their quote (price, missing items, timing). They are notified and can resubmit. */
+    @PostMapping("/requests/{id}/quotations/{quotationId}/revise")
+    public ApiResponse<Map<String, Object>> revise(@PathVariable UUID id, @PathVariable UUID quotationId, @Valid @RequestBody RevisionInput in) {
+        directQuotes.requestRevision(id, quotationId, CurrentUser.id(), in.note());
+        return ApiResponse.of(Map.of("revision_requested", true));
     }
 
     @PostMapping("/requests/{id}/quotations/{quotationId}/reject")

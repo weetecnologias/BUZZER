@@ -44,9 +44,11 @@ public class QuotationService {
     private final NotificationService notifications;
     private final SettingsService settings;
     private final AuditService audit;
+    private final com.buzzer.common.Json json;
 
     public QuotationService(JdbcClient jdbc, BusinessIds ids, RequestRepository requests, PartnerEligibility eligibility,
-                            NotificationService notifications, SettingsService settings, AuditService audit) {
+                            NotificationService notifications, SettingsService settings, AuditService audit, com.buzzer.common.Json json) {
+        this.json = json;
         this.jdbc = jdbc;
         this.ids = ids;
         this.requests = requests;
@@ -131,11 +133,12 @@ public class QuotationService {
     }
 
     @Transactional
-    public void decline(UUID invitationId, UUID partnerId, String reason) {
+    public UUID decline(UUID invitationId, UUID partnerId, String reason) {
         Invitation inv = lockInvitation(invitationId, partnerId);
         if (!"INVITED".equals(inv.status())) throw new BusinessException(ErrorCode.QUOTATION_NOT_AVAILABLE, "This lead is no longer open");
         jdbc.sql("UPDATE partner_invitations SET status = 'DECLINED', decline_reason = :r, closed_at = now() WHERE id = :i")
                 .param("r", reason).param("i", invitationId).update();
+        return inv.requestId();
     }
 
     /** Agent presents selected quotations to the customer. */
@@ -189,10 +192,17 @@ public class QuotationService {
                        q.scope_of_work, q.labour_amount, q.materials_amount, q.visit_fee, q.tax_amount, q.discount_amount, q.total_amount,
                        q.currency, q.estimated_arrival, q.estimated_completion, q.valid_until, q.exclusions, q.cancellation_terms,
                        q.warranty, q.pay_on_delivery_allowed, q.status, q.agent_note, q.shared_at, q.created_at,
-                       (q.valid_until < now()) AS expired
+                       (q.valid_until < now()) AS expired, q.line_items::text AS line_items, q.revision_no, q.revision_note, q.partner_note,
+                       q.source
                 FROM quotations q JOIN partners p ON p.id = q.partner_id
-                WHERE q.request_id = :r AND (NOT :cv OR q.status IN ('SHARED','ACCEPTED','REJECTED'))
-                ORDER BY q.total_amount""").param("r", requestId).param("cv", customerView).query().listOfRows();
+                WHERE q.request_id = :r AND (NOT :cv OR q.status IN ('SHARED','ACCEPTED','REJECTED','REVISION_REQUESTED'))
+                  AND q.status <> 'REVISED'
+                ORDER BY CASE q.status WHEN 'ACCEPTED' THEN 0 WHEN 'SHARED' THEN 1 ELSE 2 END, q.total_amount""")
+                .param("r", requestId).param("cv", customerView).query().listOfRows().stream().map(row -> {
+                    Map<String, Object> m = new java.util.LinkedHashMap<>(row);
+                    m.put("line_items", row.get("line_items") == null ? null : json.tree((String) row.get("line_items")));
+                    return m;
+                }).toList();
     }
 
     public List<Map<String, Object>> invitations(UUID requestId) {

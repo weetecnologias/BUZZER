@@ -83,13 +83,16 @@ public class AgentController {
     private final com.buzzer.quotation.InstantQuoteService instantQuotes;
     private final com.buzzer.ops.TransferService transfers;
     private final com.buzzer.customer.AgentSubscriptionService subscriptions;
+    private final com.buzzer.quotation.DirectQuoteService directQuotes;
 
     public AgentController(AgentAccess access, RequestService requestService, RequestRepository requests, QuotationService quotations,
                            PartnerEligibility eligibility, AssignmentService assignments, ExecutionService execution, PaymentService payments,
                            CustomerService customers, AgentAllocationService allocation, UserRepository users,
                            NotificationService notifications, AuditService audit, JdbcClient jdbc, EscalationService escalations,
                            com.buzzer.quotation.InstantQuoteService instantQuotes, com.buzzer.ops.TransferService transfers,
-                           com.buzzer.customer.AgentSubscriptionService subscriptions) {
+                           com.buzzer.customer.AgentSubscriptionService subscriptions,
+                           com.buzzer.quotation.DirectQuoteService directQuotes) {
+        this.directQuotes = directQuotes;
         this.subscriptions = subscriptions;
         this.escalations = escalations;
         this.instantQuotes = instantQuotes;
@@ -229,6 +232,11 @@ public class AgentController {
     @GetMapping("/requests/{id}")
     public ApiResponse<Map<String, Object>> detail(@PathVariable UUID id) {
         authorised(id);
+        // Opening the ticket clears its NEW highlight for the handling agent.
+        jdbc.sql("""
+                UPDATE service_requests SET agent_seen_at = now()
+                WHERE id = :r AND agent_seen_at IS NULL AND (agent_id = :a OR escalated_to_agent_id = :a)""")
+                .param("r", id).param("a", access.me(CurrentUser.id()).agentId()).update();
         Map<String, Object> d = new LinkedHashMap<>(requestService.detail(id, "AGENT"));
         d.put("quotations", quotations.forRequest(id, false));
         d.put("invitations", quotations.invitations(id));
@@ -279,6 +287,14 @@ public class AgentController {
     }
 
     public record TransferInput(@NotNull UUID agentId, @NotBlank @Size(max = 500) String reason) {}
+
+    /** Agent drives an automated (direct-quote) request personally. */
+    @PostMapping("/requests/{id}/take-over")
+    public ApiResponse<Map<String, Object>> takeOver(@PathVariable UUID id) {
+        authorised(id);
+        directQuotes.takeOver(id, access.me(CurrentUser.id()).agentId(), CurrentUser.id());
+        return ApiResponse.of(Map.of("handling_mode", "AGENT"));
+    }
 
     @PostMapping("/requests/{id}/transfer")
     public ApiResponse<Map<String, Object>> transfer(@PathVariable UUID id, @Valid @RequestBody TransferInput in) {
