@@ -1,0 +1,14 @@
+buzzer:
+  outbox:
+    poll-ms: 600000
+  escalation:
+    poll-ms: 600000
+  otp:
+    max-requests-per-hour: 1000
+  security:
+    auth-rate-limit-per-minute: 100000
+
+logging:
+  level:
+    com.buzzer: INFO
+    org.flywaydb: WARN

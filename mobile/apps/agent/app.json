@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "BUZZER Agent",
+    "slug": "buzzer-agent",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#064E32"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "in.buzzer.agent"
+    },
+    "android": {
+      "package": "in.buzzer.agent",
+      "adaptiveIcon": {
+        "backgroundColor": "#064E32",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "name": "BUZZER Agent"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ],
+    "extra": {
+      "app": "AGENT"
+    }
+  }
+}

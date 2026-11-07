@@ -1,0 +1,70 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "mvn",
+      "runtimeArgs": [
+        "-q",
+        "-f",
+        "backend/pom.xml",
+        "spring-boot:test-run",
+        "-Dspring-boot.run.main-class=com.buzzer.LocalDevApplication"
+      ],
+      "port": 8080
+    },
+    {
+      "name": "customer-app",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "mobile/apps/customer",
+        "run",
+        "web",
+        "--",
+        "--port",
+        "8081"
+      ],
+      "port": 8081
+    },
+    {
+      "name": "partner-app",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "mobile/apps/partner",
+        "run",
+        "web",
+        "--",
+        "--port",
+        "8082"
+      ],
+      "port": 8082
+    },
+    {
+      "name": "agent-app",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "mobile/apps/agent",
+        "run",
+        "web",
+        "--",
+        "--port",
+        "8083"
+      ],
+      "port": 8083
+    },
+    {
+      "name": "admin-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "apps/admin-web",
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    }
+  ]
+}

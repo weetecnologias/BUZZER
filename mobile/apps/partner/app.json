@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "BUZZER Partner",
+    "slug": "buzzer-partner",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#064E32"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "in.buzzer.partner"
+    },
+    "android": {
+      "package": "in.buzzer.partner",
+      "adaptiveIcon": {
+        "backgroundColor": "#064E32",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "name": "BUZZER Partner"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ],
+    "extra": {
+      "app": "PARTNER"
+    }
+  }
+}
