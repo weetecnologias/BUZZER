@@ -14,23 +14,32 @@ import { NotificationsScreen } from './src/screens/Notifications';
 import { CartScreen, WishlistScreen, WriteToAgentScreen } from './src/screens/Cart';
 import { CartProvider } from './src/cart';
 import { OnboardingGate, SubscribeAgentScreen } from './src/screens/Onboarding';
+import { AssistanceScreen, CreateRequestScreen, ExploreScreen, OrdersScreen, UniversalSearchScreen } from './src/screens/Unified';
 
+/** Unified BUZZER navigation: Home · Explore · My Requests · Orders · Account (notifications live in the header). */
 const TABS = [
   { key: 'home', label: 'Home', glyph: '🏠' },
-  { key: 'requests', label: 'Requests', glyph: '📋' },
-  { key: 'alerts', label: 'Updates', glyph: '🔔' },
-  { key: 'profile', label: 'Profile', glyph: '👤' },
+  { key: 'explore', label: 'Explore', glyph: '🧭' },
+  { key: 'requests', label: 'My Requests', glyph: '📋' },
+  { key: 'orders', label: 'Orders', glyph: '📦' },
+  { key: 'account', label: 'Account', glyph: '👤' },
 ];
 
-function Tabs({ params }: { params: { tab?: string } }) {
+function Tabs({ params }: { params: { tab?: string; vertical?: string } }) {
   const [tab, setTab] = useState(params.tab ?? 'home');
+  const [vertical, setVertical] = useState<string | undefined>(params.vertical);
+  const open = (t: string, opts?: { vertical?: string }) => {
+    if (opts?.vertical) setVertical(opts.vertical);
+    setTab(t === 'alerts' ? 'home' : t);
+  };
   return (
     <View style={{ flex: 1 }}>
       <View style={{ flex: 1 }}>
-        {tab === 'home' && <HomeScreen onOpenTab={setTab} />}
+        {tab === 'home' && <HomeScreen onOpenTab={open} />}
+        {tab === 'explore' && <ExploreScreen vertical={vertical} onVertical={setVertical} />}
         {tab === 'requests' && <RequestsScreen />}
-        {tab === 'alerts' && <NotificationsScreen />}
-        {tab === 'profile' && <ProfileScreen />}
+        {tab === 'orders' && <OrdersScreen />}
+        {tab === 'account' && <ProfileScreen />}
       </View>
       <BottomTabs tabs={TABS} active={tab} onChange={setTab} />
     </View>
@@ -58,6 +67,10 @@ export default function App() {
             Wishlist: () => <WishlistScreen />,
             WriteToAgent: ({ params }) => <WriteToAgentScreen params={params} />,
             SubscribeAgent: () => <SubscribeAgentScreen />,
+            Search: ({ params }) => <UniversalSearchScreen params={params} />,
+            CreateRequest: ({ params }) => <CreateRequestScreen params={params} />,
+            Assistance: () => <AssistanceScreen />,
+            Notifications: () => <NotificationsScreen />,
           }}
         />
         </CartProvider>

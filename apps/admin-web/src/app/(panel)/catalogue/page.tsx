@@ -5,6 +5,7 @@ import { api, useApi, useMutation } from "@/lib/api";
 import { Badge, Card, Empty, ErrorBox, Field, Loading, Modal, money, Notice, PageHeader, Status } from "@/components/ui";
 import { ExcelImport, ImageField, previewSrc } from "@/components/workflow";
 
+const VERTICALS = [["MARKETPLACE", "Shop & Buy (marketplace)"], ["SERVICES", "Book Services"], ["TASKS", "Tasks & Errands"], ["ASSISTANCE", "Personal Assistance"]];
 const WORKFLOWS = ["MENU_DRIVEN", "PROPERTY_REQUIREMENT", "CATEGORY_SPECIAL_REQUEST", "GLOBAL_SPECIAL_REQUEST", "JOB_RECRUITMENT", "EVENT_BRIEF", "API_PRICED"];
 const PRICING = ["QUOTE_REQUIRED", "FIXED", "STARTING_FROM", "RANGE", "PER_UNIT", "HOURLY", "VISIT_PLUS_LABOUR", "PACKAGE", "API_PRICED"];
 
@@ -39,7 +40,7 @@ export default function CataloguePage() {
     const it = e.item ?? {};
     setForm({
       code: it.code ?? "", name: it.name ?? "", image_url: it.image_url ?? "", description: it.description ?? "", icon: it.icon ?? "", sort_order: it.sort_order ?? "",
-      active: it.active ?? true, workflow_template: it.workflow_template ?? "MENU_DRIVEN", is_global_special: it.is_global_special ?? false,
+      active: it.active ?? true, workflow_template: it.workflow_template ?? "MENU_DRIVEN", vertical: it.vertical ?? "SERVICES", is_global_special: it.is_global_special ?? false,
       advisory_notice: it.advisory_notice ?? "", pricing_type: it.pricing_type ?? "QUOTE_REQUIRED", base_price: it.base_price ?? "",
       min_price: it.min_price ?? "", max_price: it.max_price ?? "", unit: it.unit ?? "", is_other: it.is_other ?? false,
       pay_on_delivery_allowed: it.pay_on_delivery_allowed ?? true, menu_group: it.menu_group ?? "",
@@ -62,7 +63,7 @@ export default function CataloguePage() {
     let path: string;
     let method: "POST" | "PUT" = editing.item ? "PUT" : "POST";
     if (editing.kind === "category") {
-      body = { ...base, image_url: form.image_url || null, workflow_template: form.workflow_template, is_global_special: form.is_global_special, advisory_notice: form.advisory_notice || null, default_form_schema: schema.value };
+      body = { ...base, image_url: form.image_url || null, workflow_template: form.workflow_template, vertical: form.vertical, is_global_special: form.is_global_special, advisory_notice: form.advisory_notice || null, default_form_schema: schema.value };
       path = editing.item ? `admin/catalogue/categories/${editing.item.id}` : "admin/catalogue/categories";
     } else if (editing.kind === "subcategory") {
       body = base;
@@ -107,7 +108,7 @@ export default function CataloguePage() {
         <Card title={`Categories (${tree.data?.length ?? 0})`}>
           {tree.loading && !tree.data ? <Loading /> : tree.error ? <ErrorBox message={tree.error} onRetry={tree.reload} /> : (tree.data ?? []).map((c, i, arr) => (
             <div key={c.id} className={`tree-item ${cat?.id === c.id ? "active" : ""}`} onClick={() => { setCat(c); setSub(null); }}>
-              <span>{c.name} {!c.active ? <Badge tone="danger">inactive</Badge> : null}<div className="muted small">{c.subcategory_count} sub • {c.approved_partner_count} partners</div></span>
+              <span>{c.name} {!c.active ? <Badge tone="danger">inactive</Badge> : null}<div className="muted small">{(VERTICALS.find((v) => v[0] === c.vertical) ?? ["", c.vertical])[1]} • {c.subcategory_count} sub • {c.approved_partner_count} partners</div></span>
               <span className="row" onClick={(e) => e.stopPropagation()}>
                 <button className="btn btn-ghost btn-sm" aria-label="Move up" onClick={() => move(arr, i, -1, "admin/catalogue/categories/reorder", tree.reload)}>↑</button>
                 <button className="btn btn-ghost btn-sm" aria-label="Move down" onClick={() => move(arr, i, 1, "admin/catalogue/categories/reorder", tree.reload)}>↓</button>
@@ -163,6 +164,7 @@ export default function CataloguePage() {
         <Field label="Description"><textarea value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
         {editing?.kind === "category" ? (
           <>
+            <Field label="Business vertical (where customers find it)"><select value={form.vertical} onChange={(e) => setForm({ ...form, vertical: e.target.value })}>{VERTICALS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
             <Field label="Workflow template"><select value={form.workflow_template} onChange={(e) => setForm({ ...form, workflow_template: e.target.value })}>{WORKFLOWS.map((w) => <option key={w}>{w}</option>)}</select></Field>
             <Field label="Advisory notice (shown to customers)"><textarea value={form.advisory_notice ?? ""} onChange={(e) => setForm({ ...form, advisory_notice: e.target.value })} /></Field>
             <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={!!form.is_global_special} onChange={(e) => setForm({ ...form, is_global_special: e.target.checked })} /> Global special-request category</label>

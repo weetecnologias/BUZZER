@@ -22,8 +22,9 @@ public class CatalogueController {
     }
 
     @GetMapping("/categories")
-    public ApiResponse<List<Map<String, Object>>> categories(@RequestParam(required = false) UUID cityId) {
-        return ApiResponse.of(catalogue.categories(cityId));
+    public ApiResponse<List<Map<String, Object>>> categories(@RequestParam(required = false) UUID cityId,
+                                                            @RequestParam(required = false) String vertical) {
+        return ApiResponse.of(catalogue.categories(cityId, vertical));
     }
 
     @GetMapping("/categories/{id}")

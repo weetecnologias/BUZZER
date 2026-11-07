@@ -278,16 +278,28 @@ public class CustomerController {
         return ApiResponse.of(Map.of("reviewed", true));
     }
 
+    /** Request is still being arranged (before the customer accepted a quote / booked). */
+    private static final java.util.Set<String> OPEN_STATUSES = java.util.Set.of("REQUEST_CREATED", "AGENT_REVIEW", "PARTNER_QUOTATION",
+            "CUSTOMER_APPROVAL");
+    /** Accepted and moving: payment, partner, delivery / job in progress. */
+    private static final java.util.Set<String> ORDER_STATUSES = java.util.Set.of("PAYMENT_PENDING", "PAYMENT_CONFIRMED", "PARTNER_ASSIGNED",
+            "PARTNER_CONFIRMED", "RESCHEDULING_REQUESTED", "PARTNER_ARRIVED", "SERVICE_STARTED", "IN_PROGRESS", "COMPLETION_PENDING", "PARTNER_DECLINED",
+            "NO_SHOW");
+
     @GetMapping("/home")
     public ApiResponse<Map<String, Object>> home() {
         UUID me = CurrentUser.id();
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("active_requests", requestService.customerRequests(me, true).stream().limit(5).toList());
+        List<Map<String, Object>> mine = requestService.customerRequests(me, false);
+        out.put("active_requests", mine.stream().filter(r -> OPEN_STATUSES.contains(String.valueOf(r.get("status")))).limit(5).toList());
+        out.put("recent_requests", mine.stream().limit(5).toList());
+        out.put("active_orders", mine.stream().filter(r -> ORDER_STATUSES.contains(String.valueOf(r.get("status")))).limit(5).toList());
         out.put("popular_services", jdbc.sql("""
                 SELECT i.id, i.name, i.description, i.image_url, i.icon, i.pricing_type, i.base_price, i.min_price, i.unit, i.original_price, i.deal_label, s.id AS subcategory_id, s.name AS subcategory_name, s.icon AS subcategory_icon, c.id AS category_id, c.name AS category_name, c.workflow_template
                 FROM service_items i JOIN subcategories s ON s.id = i.subcategory_id JOIN categories c ON c.id = s.category_id
                 LEFT JOIN service_requests r ON r.service_item_id = i.id AND r.created_at > now() - interval '30 days'
                 WHERE i.active AND s.active AND c.active AND NOT i.is_other AND c.workflow_template IN ('MENU_DRIVEN', 'EVENT_BRIEF')
+                  AND c.vertical IN (SELECT code FROM platform_verticals WHERE enabled)
                   AND i.pricing_type <> 'QUOTE_REQUIRED'
                 GROUP BY i.id, s.id, c.id ORDER BY count(r.id) DESC, c.sort_order, i.sort_order LIMIT 8""").query().listOfRows());
         return ApiResponse.of(out);

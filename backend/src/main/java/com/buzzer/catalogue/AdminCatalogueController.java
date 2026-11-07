@@ -47,7 +47,8 @@ public class AdminCatalogueController {
     public record CategoryInput(@NotBlank @Pattern(regexp = CODE) String code, @NotBlank @Size(max = 160) String name,
                                 @Size(max = 2000) String description, @Size(max = 80) String icon, @Size(max = 500) String imageUrl,
                                 Integer sortOrder, Boolean active, String workflowTemplate, Boolean isGlobalSpecial,
-                                @Size(max = 2000) String advisoryNotice, JsonNode defaultFormSchema, List<UUID> cityIds) {}
+                                @Size(max = 2000) String advisoryNotice, JsonNode defaultFormSchema, List<UUID> cityIds,
+                                @Pattern(regexp = "MARKETPLACE|SERVICES|TASKS|ASSISTANCE") String vertical) {}
 
     public record SubcategoryInput(@NotBlank @Pattern(regexp = CODE) String code, @NotBlank @Size(max = 160) String name,
                                    @Size(max = 2000) String description, @Size(max = 80) String icon, Integer sortOrder, Boolean active) {}
@@ -78,7 +79,7 @@ public class AdminCatalogueController {
     @GetMapping("/tree")
     public ApiResponse<List<Map<String, Object>>> tree() {
         List<Map<String, Object>> cats = jdbc.sql("""
-                SELECT c.id, c.code, c.name, c.description, c.icon, c.image_url, c.sort_order, c.active, c.workflow_template,
+                SELECT c.id, c.code, c.name, c.description, c.icon, c.image_url, c.sort_order, c.active, c.workflow_template, c.vertical,
                        c.is_global_special, c.advisory_notice, c.default_form_schema::text AS default_form_schema,
                        (SELECT count(*) FROM subcategories s WHERE s.category_id = c.id) AS subcategory_count,
                        (SELECT count(*) FROM service_items i JOIN subcategories s ON s.id = i.subcategory_id WHERE s.category_id = c.id) AS service_count,
@@ -113,14 +114,14 @@ public class AdminCatalogueController {
         validateCategory(in);
         UUID id = jdbc.sql("""
                 INSERT INTO categories(code, name, description, icon, image_url, sort_order, active, workflow_template,
-                                       is_global_special, advisory_notice, default_form_schema)
+                                       is_global_special, advisory_notice, default_form_schema, vertical)
                 VALUES (:code, :name, :d, :icon, :img, COALESCE(:so, (SELECT COALESCE(max(sort_order),0)+1 FROM categories)),
-                        COALESCE(:active, TRUE), COALESCE(:wf, 'MENU_DRIVEN'), COALESCE(:gs, FALSE), :adv, CAST(:form AS jsonb))
+                        COALESCE(:active, TRUE), COALESCE(:wf, 'MENU_DRIVEN'), COALESCE(:gs, FALSE), :adv, CAST(:form AS jsonb), COALESCE(:vert, 'SERVICES'))
                 RETURNING id""")
                 .param("code", in.code()).param("name", in.name()).param("d", in.description()).param("icon", in.icon())
                 .param("img", in.imageUrl()).param("so", in.sortOrder()).param("active", in.active())
                 .param("wf", in.workflowTemplate()).param("gs", in.isGlobalSpecial()).param("adv", in.advisoryNotice())
-                .param("form", json.write(in.defaultFormSchema())).query(UUID.class).single();
+                .param("form", json.write(in.defaultFormSchema())).param("vert", in.vertical()).query(UUID.class).single();
         setCities(id, in.cityIds());
         audit.record(CurrentUser.id(), CurrentUser.primaryRole(), "CATEGORY_CREATED", "CATEGORY", id, Map.of("code", in.code()));
         return ApiResponse.of(Map.of("id", id));
@@ -134,12 +135,12 @@ public class AdminCatalogueController {
                 UPDATE categories SET code = :code, name = :name, description = :d, icon = :icon, image_url = :img,
                   sort_order = COALESCE(:so, sort_order), active = COALESCE(:active, active),
                   workflow_template = COALESCE(:wf, workflow_template), is_global_special = COALESCE(:gs, is_global_special),
-                  advisory_notice = :adv, default_form_schema = CAST(:form AS jsonb), updated_at = now()
+                  advisory_notice = :adv, default_form_schema = CAST(:form AS jsonb), vertical = COALESCE(:vert, vertical), updated_at = now()
                 WHERE id = :id""")
                 .param("code", in.code()).param("name", in.name()).param("d", in.description()).param("icon", in.icon())
                 .param("img", in.imageUrl()).param("so", in.sortOrder()).param("active", in.active())
                 .param("wf", in.workflowTemplate()).param("gs", in.isGlobalSpecial()).param("adv", in.advisoryNotice())
-                .param("form", json.write(in.defaultFormSchema())).param("id", id).update();
+                .param("form", json.write(in.defaultFormSchema())).param("vert", in.vertical()).param("id", id).update();
         if (n == 0) throw BusinessException.notFound("Category");
         if (in.cityIds() != null) setCities(id, in.cityIds());
         audit.record(CurrentUser.id(), CurrentUser.primaryRole(), "CATEGORY_UPDATED", "CATEGORY", id, Map.of("code", in.code(), "active", String.valueOf(in.active())));

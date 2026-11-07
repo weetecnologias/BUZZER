@@ -72,7 +72,8 @@ public class CartService {
     public Map<String, Object> add(UUID customer, UUID serviceItemId, int quantity) {
         if (quantity < 1 || quantity > 50) throw BusinessException.invalid("Quantity must be between 1 and 50");
         Map<String, Object> item = jdbc.sql("""
-                SELECT i.id, i.is_other, c.workflow_template, i.active AND s.active AND c.active AS available
+                SELECT i.id, i.is_other, c.workflow_template,
+                       i.active AND s.active AND c.active AND c.vertical IN (SELECT code FROM platform_verticals WHERE enabled) AS available
                 FROM service_items i JOIN subcategories s ON s.id = i.subcategory_id JOIN categories c ON c.id = s.category_id
                 WHERE i.id = :i""").param("i", serviceItemId).query().listOfRows().stream().findFirst()
                 .orElseThrow(() -> BusinessException.notFound("Service"));
@@ -164,6 +165,7 @@ public class CartService {
                 FROM cart_items ci JOIN service_items i ON i.id = ci.service_item_id JOIN subcategories s ON s.id = i.subcategory_id
                 JOIN categories c ON c.id = s.category_id
                 WHERE ci.customer_user_id = :c AND i.active AND s.active AND c.active
+                  AND c.vertical IN (SELECT code FROM platform_verticals WHERE enabled)
                 ORDER BY c.sort_order, s.sort_order, i.sort_order""").param("c", customer).query(Line.class).list();
     }
 

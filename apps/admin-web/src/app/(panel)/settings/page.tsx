@@ -8,6 +8,7 @@ export default function Settings() {
   const settings = useApi<any[]>("admin/settings");
   const sla = useApi<any[]>("admin/sla-rules");
   const cities = useApi<any[]>("admin/locations/cities");
+  const verticals = useApi<any[]>("admin/platform/verticals");
   const m = useMutation();
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [slaEdits, setSlaEdits] = useState<Record<string, { first_response_minutes: number; resolution_minutes: number }>>({});
@@ -18,6 +19,19 @@ export default function Settings() {
       <PageHeader title="Settings & SLA" subtitle="Thresholds and policies are configuration, not code" />
       {m.error ? <ErrorBox message={m.error} /> : null}
       {saved ? <Notice tone="success">{saved}</Notice> : null}
+      <Card title="Business verticals">
+        <p className="muted small">Switch a whole vertical on or off. When off, its categories disappear from the customer app, search and checkout immediately; nothing is deleted.</p>
+        {verticals.loading && !verticals.data ? <Loading /> : (
+          <table><thead><tr><th>Vertical</th><th>What customers see</th><th>Categories</th><th>Status</th><th /></tr></thead>
+            <tbody>{(verticals.data ?? []).map((v) => (
+              <tr key={v.code}><td><b>{v.name}</b><div className="muted small mono">{v.code}</div></td><td className="small">{v.tagline}</td><td>{v.category_count}</td>
+                <td><span className={`badge ${v.enabled ? "tone-success" : "tone-danger"}`}>{v.enabled ? "ON" : "OFF"}</span></td>
+                <td><button className={`btn btn-sm ${v.enabled ? "btn-outline" : "btn-primary"}`} disabled={m.busy} onClick={async () => {
+                  if (await m.run(() => api(`admin/platform/verticals/${v.code}`, { method: "PUT", body: { enabled: !v.enabled } }))) { setSaved(`${v.name} switched ${v.enabled ? "off" : "on"}`); verticals.reload(); }
+                }}>{v.enabled ? "Switch off" : "Switch on"}</button></td></tr>
+            ))}</tbody></table>
+        )}
+      </Card>
       <Card title="Platform settings">
         {settings.loading && !settings.data ? <Loading /> : (
           <table><thead><tr><th>Setting</th><th>Description</th><th style={{ width: 180 }}>Value</th><th /></tr></thead>

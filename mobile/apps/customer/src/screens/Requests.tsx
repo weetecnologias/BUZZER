@@ -9,7 +9,7 @@ export function RequestsScreen() {
   useOnRefocus(q.refresh);
   return (
     <View style={{ flex: 1 }}>
-      <GradientHeader title="My requests" subtitle="Track every request and booking" />
+      <GradientHeader title="My Requests" subtitle="Quotes, bookings, tasks and help requests" />
       <Screen refreshing={q.refreshing} onRefresh={q.refresh}>
         <Row>
           <Chip label="Active" selected={openOnly} onPress={() => setOpenOnly(true)} />

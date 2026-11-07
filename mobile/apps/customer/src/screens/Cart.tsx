@@ -273,15 +273,16 @@ export function WishlistScreen() {
 }
 
 /** Free-text request that goes straight to the customer's dedicated agent. */
-export function WriteToAgentScreen({ params }: { params: { categoryId?: string; categoryName?: string } }) {
+export function WriteToAgentScreen({ params }: { params: { categoryId?: string; categoryName?: string; prefill?: string; kind?: 'TASK' } }) {
   const nav = useNav();
   const agent = useQuery(() => api.get<any>('/api/v1/customer/agent'));
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(params.prefill ?? '');
   const [addressId, setAddressId] = useState<string | null>(null);
   const [when, setWhen] = useState('');
   const act = useAction();
   const key = useRef(newIdempotencyKey()).current;
-  const name = agent.data?.primary?.display_name ?? 'your agent';
+  const name = agent.data?.primary?.display_name ?? 'the BUZZER team';
+  const isTask = params.kind === 'TASK';
 
   const send = async () => {
     const w = parseWhen(when);
@@ -297,22 +298,22 @@ export function WriteToAgentScreen({ params }: { params: { categoryId?: string; 
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.paleMint }}>
-      <TopBar title="Write to my agent" onBack={nav.pop} />
+      <TopBar title={isTask ? 'Request a task' : agent.data?.primary ? 'Write to my agent' : 'Ask for help'} onBack={nav.pop} />
       <Screen>
         <LinearGradient colors={gradient.header} style={styles.agentHead}>
           <Text style={{ color: '#CFEBD9', fontSize: font.xs }}>Your request goes directly to</Text>
           <Text style={{ color: colors.white, fontSize: font.xl, fontWeight: '800' }}>{name}</Text>
-          <Text style={{ color: '#CFEBD9', fontSize: font.xs }}>{params.categoryName ? `About: ${params.categoryName}` : 'Anything you need — errands, bookings, help at home'}</Text>
+          <Text style={{ color: '#CFEBD9', fontSize: font.xs }}>{params.categoryName ? `About: ${params.categoryName}` : isTask ? 'Pickups, drops, collections and errands' : 'Anything you need — errands, bookings, help at home'}</Text>
         </LinearGradient>
         <Card>
-          <TextField label="What do you need?" value={message} onChangeText={setMessage} multiline maxLength={2000}
-            placeholder="e.g. Need a tailor to alter 2 blazers by Friday, pickup from home" />
+          <TextField label={isTask ? 'What should we pick up / deliver / get done?' : 'What do you need?'} value={message} onChangeText={setMessage} multiline maxLength={2000}
+            placeholder={isTask ? 'e.g. Pick up a document from my office in Hitech City and deliver it to Banjara Hills by 4 pm' : 'e.g. Need a tailor to alter 2 blazers by Friday, pickup from home'} />
           <TextField label="When (optional)" placeholder="2026-11-12 10:30" value={when} onChangeText={setWhen} />
           <Label>Address (optional)</Label>
           <View style={{ marginTop: space.sm }}><AddressPicker value={addressId} onChange={setAddressId} /></View>
         </Card>
         {act.error ? <ErrorState message={act.error} /> : null}
-        <Button title="Send to my agent" onPress={send} loading={act.busy} disabled={message.trim().length < 5} />
+        <Button title={agent.data?.primary ? `Send to ${name.split(' ')[0]}` : 'Send to the BUZZER team'} onPress={send} loading={act.busy} disabled={message.trim().length < 5} />
       </Screen>
     </View>
   );

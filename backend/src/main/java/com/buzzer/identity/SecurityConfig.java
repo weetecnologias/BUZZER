@@ -47,7 +47,8 @@ public class SecurityConfig {
             .headers(h -> h.contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'")))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/otp/**", "/api/v1/auth/refresh").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/v1/catalogue/**", "/api/v1/locations/**", "/api/v1/terms/**", "/api/v1/media/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/catalogue/**", "/api/v1/locations/**", "/api/v1/terms/**", "/api/v1/media/**",
+                        "/api/v1/platform/**", "/api/v1/search").permitAll()
                 .requestMatchers("/api/v1/payments/webhooks/**").permitAll()
                 .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
                 .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()

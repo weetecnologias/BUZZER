@@ -8,11 +8,19 @@ import {
 } from '@buzzer/core';
 import { CartBar, CategoryChip, CircleButton, DealCard, PopularServiceRow } from '../components/Catalog';
 import { useCart } from '../cart';
+import { useVerticals } from './Unified';
 
 type AgentLink = { agent_id: string; display_name: string; photo_url: string | null; availability: string; phone: string; online: boolean; languages: string };
 type AgentCardData = { primary: AgentLink | null; backup: AgentLink | null; support_phone: string; plan: 'DEDICATED' | 'EXPLORE' | null };
 type Category = { id: string; name: string; icon: string; code: string; image_url: string | null; workflow_template: string };
-type HomeData = { active_requests: any[]; popular_services: any[] };
+type HomeData = { active_requests: any[]; popular_services: any[]; recent_requests: any[]; active_orders: any[] };
+
+const CARDS = [
+  { key: 'SHOP', vertical: 'MARKETPLACE', glyph: '🛍️', title: 'Shop & Buy', text: 'Products from local shops' },
+  { key: 'QUOTES', vertical: 'MARKETPLACE', glyph: '🧾', title: 'Request Quotations', text: 'Shops send item-wise prices' },
+  { key: 'SERVICES', vertical: 'SERVICES', glyph: '🛠️', title: 'Book Services', text: 'Verified professionals' },
+  { key: 'ASSIST', vertical: 'ASSISTANCE', glyph: '🧑‍💼', title: 'Personal Assistance', text: 'A person who gets it done' },
+] as const;
 
 const dial = (phone: string) => callPhone(phone);
 const chat = (phone: string) => openWhatsApp(phone);
@@ -82,7 +90,9 @@ function AgentCard({ data, onWrite, onSubscribe }: { data: AgentCardData | null;
   );
 }
 
-export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string) => void }) {
+export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string, opts?: { vertical?: string }) => void }) {
+  const verticals = useVerticals();
+  const shops = useQuery(() => api.get<any[]>('/api/v1/platform/featured-shops?limit=8'));
   const nav = useNav();
   const { me } = useAuth();
   const [q, setQ] = useState('');
@@ -93,7 +103,7 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string) => void }) {
   const home = useQuery(() => api.get<HomeData>('/api/v1/customer/home'));
   const deals = useQuery(() => api.get<any[]>('/api/v1/catalogue/deals?limit=10'));
   const { cart } = useCart();
-  const search = useQuery(() => (q.trim().length >= 2 ? api.get<any[]>(`/api/v1/catalogue/search?q=${encodeURIComponent(q.trim())}`) : Promise.resolve([])), [q]);
+
   useOnRefocus(() => {
     home.refresh();
     agent.refresh();
@@ -103,6 +113,13 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string) => void }) {
     agent.refresh();
     cats.refresh();
     home.refresh();
+    shops.refresh();
+    verticals.reload();
+  };
+  const openCard = (key: string) => {
+    if (key === 'SHOP' || key === 'QUOTES') onOpenTab?.('explore', { vertical: 'MARKETPLACE' });
+    else if (key === 'SERVICES') onOpenTab?.('explore', { vertical: 'SERVICES' });
+    else nav.push('Assistance');
   };
   const book = (s: any) => nav.push('NewRequest', { serviceItemId: s.id, title: s.name });
   const openItem = (s: any) => nav.push('Category', { categoryId: s.category_id, title: s.category_name, subcategoryId: s.subcategory_id });
@@ -114,40 +131,67 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string) => void }) {
     <View style={{ flex: 1, backgroundColor: colors.paleMint }}>
       <SafeAreaView edges={['top']} style={{ backgroundColor: colors.paleMint }}>
         <View style={styles.header}>
+          <View style={styles.logo}><Text style={styles.logoB}>B</Text></View>
           <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.textSecondary, fontSize: font.sm }}>Welcome back • 📍 {profile.data?.city_name ?? '…'}</Text>
-            <Text style={{ color: colors.text, fontSize: font.xxl, fontWeight: '800' }}>Hello, {firstName}</Text>
+            <Text style={{ color: colors.forest, fontWeight: '900', letterSpacing: 1, fontSize: font.md }}>BUZZER</Text>
+            <Text style={{ color: colors.textSecondary, fontSize: font.xs }} numberOfLines={1}>📍 {profile.data?.city_name ?? '…'}</Text>
           </View>
-          <CircleButton glyphText="♡" label="Wishlist" onPress={() => nav.push('Wishlist')} />
           <CircleButton glyphText="🛒" label="Cart" badge={cart?.item_count ?? 0} onPress={() => nav.push('Cart')} />
-          <CircleButton glyphText="🔔" label="Notifications" onPress={() => onOpenTab?.('alerts')} />
+          <CircleButton glyphText="🔔" label="Notifications" onPress={() => nav.push('Notifications')} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Account" onPress={() => onOpenTab?.('account')}>
+            <Avatar name={me?.full_name ?? me?.phone} size={40} />
+          </Pressable>
         </View>
       </SafeAreaView>
       <Screen refreshing={agent.refreshing || home.refreshing} onRefresh={refresh}>
-        {agent.loading ? <Loading label="Finding your agent…" /> : agent.error ? <ErrorState message={agent.error} onRetry={agent.reload} /> : <AgentCard data={agent.data} onWrite={() => nav.push('WriteToAgent', {})} onSubscribe={() => nav.push('SubscribeAgent')} />}
+        <Text style={styles.hello}>Hi {firstName} 👋</Text>
+        <Text style={styles.headline}>What do you need today?</Text>
+        <Pressable accessibilityRole="search" accessibilityLabel="Search products, shops, services" onPress={() => nav.push('Search', {})} style={[styles.search, { flex: 0, minHeight: 50, marginBottom: space.sm }]}>
+          <Text>🔍</Text>
+          <Text style={{ flex: 1, color: colors.textSecondary, paddingVertical: 14, fontSize: font.sm }} numberOfLines={1}>
+            Search products, shops, services or tell us what you need...
+          </Text>
+        </Pressable>
 
-        <Row style={{ gap: space.sm }}>
-          <View style={styles.search}>
-            <Text>🔍</Text>
-            <TextInput value={q} onChangeText={setQ} placeholder="Search for service…" placeholderTextColor={colors.textSecondary}
-              style={{ flex: 1, fontSize: font.md, color: colors.text, paddingVertical: 12 }} accessibilityLabel="Search services" />
-          </View>
-          <CircleButton glyphText="⚙️" label="Browse all categories" onPress={() => nav.push('Categories')} />
-        </Row>
-        {q.trim().length >= 2 ? (
-          <Card>
-            {search.loading ? <Loading /> : (search.data ?? []).length === 0 ? (
-              <EmptyState title="No matches" message="Try another word, or raise a Special Request and your agent will arrange it." />
-            ) : (search.data ?? []).map((s: any) => (
-              <Pressable key={s.id} onPress={() => (s.workflow_template === 'MENU_DRIVEN' || s.workflow_template === 'EVENT_BRIEF') && !s.is_other ? openItem(s) : book(s)} style={styles.result}>
-                <Text style={{ fontWeight: '600', color: colors.text }}>{s.name}</Text>
-                <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>{s.category_name} › {s.subcategory_name}</Text>
-              </Pressable>
+        <View style={styles.cards}>
+          {CARDS.filter((cd) => verticals.has(cd.vertical)).map((cd) => (
+            <Pressable key={cd.key} accessibilityRole="button" accessibilityLabel={cd.title} onPress={() => openCard(cd.key)}
+              style={({ pressed }) => [styles.card4, pressed && { opacity: 0.85 }]}>
+              <Text style={{ fontSize: 30 }}>{cd.glyph}</Text>
+              <Text style={{ fontWeight: '900', color: colors.forest, fontSize: font.md }}>{cd.title}</Text>
+              <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>{cd.text}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Pressable accessibilityRole="button" onPress={() => nav.push('CreateRequest', {})}>
+          <LinearGradient colors={gradient.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.createBtn}>
+            <Text style={{ color: colors.white, fontWeight: '900', fontSize: font.lg }}>＋ Create a Request</Text>
+            <Text style={{ color: '#CFEBD9', fontSize: font.xs }}>Quotes · bookings · errands · anything else</Text>
+          </LinearGradient>
+        </Pressable>
+
+        {(home.data?.active_orders ?? []).length ? (
+          <>
+            <SectionTitle title="📦 Active orders" action="See all" onAction={() => onOpenTab?.('orders')} />
+            {(home.data?.active_orders ?? []).map((r) => (
+              <Card key={r.id} onPress={() => nav.push('RequestDetail', { id: r.id })} accessibilityLabel={`Order ${r.request_number}`}>
+                <Row style={{ justifyContent: 'space-between' }}>
+                  <Text style={{ fontWeight: '700', color: colors.text, flex: 1 }}>{r.service_name || r.subcategory_name || r.category_name}</Text>
+                  <StatusBadge status={r.status} />
+                </Row>
+              </Card>
             ))}
-          </Card>
+          </>
         ) : null}
 
-        <SectionTitle title="Categories" action="View All" onAction={() => nav.push('Categories')} />
+        {verticals.has('ASSISTANCE') ? (
+          <>
+            <SectionTitle title="My assistant" />
+            {agent.loading ? <Loading label="Finding your agent…" /> : agent.error ? <ErrorState message={agent.error} onRetry={agent.reload} /> : <AgentCard data={agent.data} onWrite={() => nav.push('WriteToAgent', {})} onSubscribe={() => nav.push('SubscribeAgent')} />}
+          </>
+        ) : null}
+
+        <SectionTitle title="Popular categories" action="Explore" onAction={() => onOpenTab?.('explore')} />
         {cats.loading ? <Loading /> : cats.error ? <ErrorState message={cats.error} onRetry={cats.reload} /> : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm, paddingVertical: 4, paddingRight: space.lg }}
             style={{ marginHorizontal: -space.lg, paddingLeft: space.lg }}>
@@ -160,6 +204,24 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string) => void }) {
             ))}
           </ScrollView>
         )}
+
+        {(shops.data ?? []).length ? (
+          <>
+            <SectionTitle title="🏪 Shops on BUZZER" action="Shop" onAction={() => onOpenTab?.('explore', { vertical: 'MARKETPLACE' })} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm, paddingVertical: 4, paddingRight: space.lg }}
+              style={{ marginHorizontal: -space.lg, paddingLeft: space.lg }}>
+              {(shops.data ?? []).map((sh) => (
+                <Pressable key={sh.id} accessibilityRole="button" accessibilityLabel={sh.display_name} style={styles.shop}
+                  onPress={() => nav.push('Category', { categoryId: sh.category_id, title: sh.display_name })}>
+                  <Text style={{ fontSize: 28 }}>🏪</Text>
+                  <Text style={{ fontWeight: '800', color: colors.text }} numberOfLines={1}>{sh.display_name}</Text>
+                  <Text style={{ color: colors.textSecondary, fontSize: font.xs }} numberOfLines={2}>{sh.categories}</Text>
+                  <Text style={{ color: colors.emerald, fontSize: font.xs, fontWeight: '700' }}>{Number(sh.rating_count) ? `★ ${sh.rating_avg}` : '✓ Verified'}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </>
+        ) : null}
 
         <LinearGradient colors={gradient.header} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.promo}>
           <View style={{ flex: 1, gap: space.sm }}>
@@ -178,7 +240,7 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string) => void }) {
 
         {(deals.data ?? []).length ? (
           <>
-            <SectionTitle title="🏷️ Exclusive deals" />
+            <SectionTitle title="🏷️ Offers & featured" />
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm, paddingVertical: 4, paddingRight: space.lg }}
               style={{ marginHorizontal: -space.lg, paddingLeft: space.lg }}>
               {(deals.data ?? []).map((d) => <DealCard key={d.id} s={d} onPress={() => openItem(d)} />)}
@@ -186,10 +248,10 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string) => void }) {
           </>
         ) : null}
 
-        {(home.data?.active_requests ?? []).length ? (
+        {(home.data?.recent_requests ?? []).length ? (
           <>
-            <SectionTitle title="Active requests" action="See all" onAction={() => onOpenTab?.('requests')} />
-            {(home.data?.active_requests ?? []).map((r) => (
+            <SectionTitle title="Recent requests" action="See all" onAction={() => onOpenTab?.('requests')} />
+            {(home.data?.recent_requests ?? []).map((r) => (
               <Card key={r.id} onPress={() => nav.push('RequestDetail', { id: r.id })} accessibilityLabel={`Request ${r.request_number}`}>
                 <Row style={{ justifyContent: 'space-between' }}>
                   <Text style={{ fontWeight: '700', color: colors.text, flex: 1 }}>{r.service_name || r.subcategory_name || r.category_name}</Text>
@@ -227,6 +289,14 @@ const styles = StyleSheet.create({
   backupRow: { marginTop: space.md, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: radius.md, padding: space.sm },
   pill: { backgroundColor: colors.lightGreen, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 8 },
   pillText: { color: colors.forest, fontWeight: '700' },
+  logo: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#B8F07A', alignItems: 'center', justifyContent: 'center' },
+  logoB: { fontSize: 22, fontWeight: '900', color: colors.forest },
+  hello: { color: colors.textSecondary, fontSize: font.sm, marginTop: space.xs },
+  headline: { color: colors.text, fontSize: 26, fontWeight: '900', marginBottom: space.sm },
+  cards: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, justifyContent: 'space-between' },
+  card4: { width: '48.5%', backgroundColor: colors.white, borderRadius: radius.xl, padding: space.md, gap: 4, borderWidth: 1, borderColor: colors.border, ...shadow.card },
+  createBtn: { borderRadius: radius.xl, paddingVertical: space.md, paddingHorizontal: space.lg, alignItems: 'center', marginTop: space.sm },
+  shop: { width: 150, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, gap: 2, borderWidth: 1, borderColor: colors.border },
   search: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: colors.white, borderRadius: radius.pill,
     paddingHorizontal: space.lg, ...shadow.card },
   result: { paddingVertical: space.sm, borderBottomWidth: 1, borderBottomColor: colors.border },

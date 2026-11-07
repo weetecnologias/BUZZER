@@ -26,7 +26,7 @@ export function ProfileScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-      <GradientHeader title="Profile" subtitle="Your details and preferences" />
+      <GradientHeader title="Account" subtitle="Profile, addresses, assistant and preferences" />
       <Screen>
         {q.loading || !form ? <Loading /> : q.error ? <ErrorState message={q.error} onRetry={q.reload} /> : (
           <>
@@ -68,7 +68,9 @@ export function ProfileScreen() {
             {act.error ? <ErrorState message={act.error} /> : null}
             {saved ? <Notice tone="success" message="Saved" /> : null}
             <Button title="Save changes" onPress={save} loading={act.busy} />
-            <Button title="Saved addresses" variant="secondary" onPress={() => nav.push('Addresses')} />
+            <Button title="🔔 Notifications" variant="secondary" onPress={() => nav.push('Notifications')} />
+            <Button title="📍 Saved addresses" variant="secondary" onPress={() => nav.push('Addresses')} />
+            <Button title="🛟 Help & support" variant="secondary" onPress={() => nav.push('WriteToAgent', {})} />
             <Button title="♡ My wishlist" variant="secondary" onPress={() => nav.push('Wishlist')} />
             <Button title="🛒 My cart" variant="secondary" onPress={() => nav.push('Cart')} />
             <Button title="✍️ Write to my agent" variant="secondary" onPress={() => nav.push('WriteToAgent', {})} />
