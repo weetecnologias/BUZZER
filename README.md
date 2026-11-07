@@ -20,6 +20,18 @@ platform tracks the job through OTP-verified start and completion to settlement.
 
 Each frontend is built and deployed independently; all four share one backend.
 
+## Documentation
+
+| Read this | If you are… |
+|---|---|
+| [Business overview](docs/business-overview.md) | Founder, operations, sales, investor — what BUZZER does, journeys, revenue, status |
+| [Developer guide](docs/developer-guide.md) | Developer — setup, structure, everyday tasks, testing, troubleshooting |
+| [Architecture](docs/architecture.md) | Anyone technical — diagrams of the system, modules, request lifecycle, data model, security |
+| [Technology stack](docs/technology-stack.md) | Anyone — every technology in plain words and why it was chosen |
+| [Developer logins (Excel)](docs/developer-logins.xlsx) | Developer / tester — all dev and test sign-ins |
+| [Deployment](docs/deployment.md) · [Runbooks](docs/runbooks) | DevOps — production setup, backup/restore, disaster recovery |
+| [Phase 1 report](docs/phase-1-report.md) | History of the first build phase |
+
 ## Quick start (local development)
 
 Prerequisites: JDK 21+ (tested on 25), Maven 3.9+, Node 24+. **No Docker or PostgreSQL install needed** — local dev
@@ -45,6 +57,7 @@ On a phone, run `npm --workspace @buzzer/customer-app run start` and set `EXPO_P
 ### Dev sign-in
 
 All apps use mobile OTP. In the **dev profile only**, the OTP is returned by the API and shown on screen.
+The complete list is in [docs/developer-logins.xlsx](docs/developer-logins.xlsx).
 
 | Who | Phone | App |
 |---|---|---|
@@ -54,7 +67,7 @@ All apps use mobile OTP. In the **dev profile only**, the OTP is returned by the
 | Plumbers (approved + KYC verified) | 90000 00021 / 22 / 23 | Partner app |
 | Electrician | 90000 00024 | Partner app |
 | Pending partner | 90000 00025 | Partner app |
-| Any other number | — | Customer app (self-registration) / Partner app (registration) |
+| Any other number | — | Customer app (sign up → Subscribe for a dedicated agent / Explore) / Partner app (registration) |
 
 Payments run on a **TEST MODE** gateway: the customer app shows "Simulate success / failure" buttons, which drive the
 real signed-webhook code path. No real money moves and nothing pretends to be a live integration.
@@ -65,9 +78,10 @@ real signed-webhook code path. No real money moves and nothing pretends to be a 
 cd backend && mvn test
 ```
 
-25 integration tests against real PostgreSQL cover authentication and RBAC, the dynamic catalogue and form validation,
+41 integration tests against real PostgreSQL cover authentication and RBAC, the dynamic catalogue and form validation,
 the full plumbing flow from registration to settlement, concurrent exclusive assignment, payment failure/retry, webhook
-signatures and duplicates, SLA escalation, cancellation alerts, dead-lettering, commission precedence and refunds.
+signatures and duplicates, SLA escalation, cancellation alerts, dead-lettering, commission precedence, refunds, cart and
+checkout, Excel imports, partner price lists and instant quotes, ticket transfers, and dedicated-agent subscription.
 See [`docs/phase-1-report.md`](docs/phase-1-report.md) for what is implemented, tested, in test mode, and still pending.
 
 ## Branching
