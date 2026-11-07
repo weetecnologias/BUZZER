@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import {
   api, Badge, Button, callPhone, openWhatsApp, Card, colors, ConfirmDialog, dateTime, ErrorState, font, GradientHeader, KeyValue, Loading, money, Notice, radius,
-  Row, Screen, space, StatusBadge, statusLabel, TextField, useAction, useNav, useOnRefocus, useQuery,
+  preferenceLines, Row, Screen, space, StatusBadge, statusLabel, TextField, useAction, useNav, useOnRefocus, useQuery,
 } from '@buzzer/core';
 
 export function AgentRequestScreen({ params }: { params: { id: string } }) {
@@ -54,6 +54,8 @@ export function AgentRequestScreen({ params }: { params: { id: string } }) {
             <Button title="📞 Call" small variant="secondary" onPress={() => callPhone(d.customer_phone)} />
             <Button title="💬 WhatsApp" small variant="secondary" onPress={() => openWhatsApp(d.customer_phone)} />
           </Row>
+          {d.agent_source === 'ON_DUTY' ? <Notice tone="info" message="On-duty request: this customer is exploring and has no dedicated agent yet. Great service here is the best reason for them to subscribe." /> : null}
+          {preferenceLines(d.customer_preferences).map(([k, v]) => <KeyValue key={k} k={k} v={v} />)}
           <KeyValue k="Category" v={`${d.category_name}${d.subcategory_name ? ' › ' + d.subcategory_name : ''}`} />
           <KeyValue k="Created" v={`${dateTime(d.created_at)} via ${d.created_via === 'AGENT_APP' ? 'agent' : 'app'}`} />
           <KeyValue k="Priority" v={d.priority} />

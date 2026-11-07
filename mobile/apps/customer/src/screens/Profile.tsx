@@ -2,13 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import {
   api, Avatar, Button, Card, colors, ErrorState, font, GradientHeader, KeyValue, Loading, Notice, Row, Screen, space, TextField, Toggle,
-  useAction, useAuth, useNav, useQuery,
+  useAction, useAuth, useNav, useOnRefocus, useQuery,
 } from '@buzzer/core';
 
 export function ProfileScreen() {
   const nav = useNav();
   const { signOut } = useAuth();
   const q = useQuery(() => api.get<any>('/api/v1/customer/profile'));
+  const agent = useQuery(() => api.get<any>('/api/v1/customer/onboarding'));
+  useOnRefocus(agent.refresh);
   const act = useAction();
   const [form, setForm] = useState<any>(null);
   const [saved, setSaved] = useState(false);
@@ -39,11 +41,22 @@ export function ProfileScreen() {
               <KeyValue k="City" v={q.data.city_name ?? '—'} />
               <KeyValue k="Membership" v="Free (paid plans coming soon)" />
             </Card>
+            <Card onPress={() => nav.push('SubscribeAgent')} accessibilityLabel="Dedicated agent">
+              <Row style={{ justifyContent: 'space-between' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: '800', color: colors.text }}>🧑‍💼 Dedicated agent</Text>
+                  <Text style={{ color: colors.textSecondary }}>
+                    {agent.data?.plan === 'DEDICATED'
+                      ? agent.data?.agent ? `${agent.data.agent.display_name} • languages: ${(agent.data.preferences?.languages ?? []).map((c: string) => agent.data.language_options.find((l: any) => l.code === c)?.label ?? c).join(', ')}` : 'Subscribed • assigning your agent'
+                      : 'Not subscribed — tap to get your own agent (free)'}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.emerald, fontWeight: '800' }}>{agent.data?.plan === 'DEDICATED' ? 'Preferences ›' : 'Subscribe ›'}</Text>
+              </Row>
+            </Card>
             <Card>
               <TextField label="Full name" value={form.full_name} onChangeText={(t) => setForm({ ...form, full_name: t })} />
               <TextField label="Email" value={form.email} onChangeText={(t) => setForm({ ...form, email: t })} keyboardType="email-address" autoCapitalize="none" />
-              <TextField label="Preferred language" value={form.preferred_language} onChangeText={(t) => setForm({ ...form, preferred_language: t })}
-                hint="e.g. Telugu, Hindi, English — helps us match your agent" />
             </Card>
             <Card>
               <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>Notifications</Text>

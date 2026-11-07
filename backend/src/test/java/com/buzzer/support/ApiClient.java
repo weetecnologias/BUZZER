@@ -43,7 +43,21 @@ public class ApiClient {
     }
 
     /** OTP login. Works because the dev profile returns the OTP in the response. */
+    /** Logs in; brand-new customers also subscribe for a dedicated agent (the common path in tests). */
     public String login(String phone, String app) {
+        String token = loginOnly(phone, app);
+        if ("CUSTOMER".equals(app)) {
+            Response st = get("/api/v1/customer/onboarding", token);
+            if (st.status() == 200 && !st.data().path("onboarded").asBoolean()) {
+                Response sub = post("/api/v1/customer/agent/subscribe", token, Map.of("languages", java.util.List.of("en", "te")));
+                if (sub.status() != 200) throw new IllegalStateException("Subscribe failed: " + sub.body());
+            }
+        }
+        return token;
+    }
+
+    /** Logs in without any onboarding choice (e.g. to test the welcome screen / explore path). */
+    public String loginOnly(String phone, String app) {
         Response otp = call("POST", "/api/v1/auth/otp/request", null, Map.of("phone", phone, "app", app), null);
         if (otp.status() != 200) throw new IllegalStateException("OTP request failed: " + otp.body());
         String code = otp.data().path("dev_code").asText(null);

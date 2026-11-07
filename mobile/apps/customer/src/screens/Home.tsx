@@ -10,7 +10,7 @@ import { CartBar, CategoryChip, CircleButton, DealCard, PopularServiceRow } from
 import { useCart } from '../cart';
 
 type AgentLink = { agent_id: string; display_name: string; photo_url: string | null; availability: string; phone: string; online: boolean; languages: string };
-type AgentCardData = { primary: AgentLink | null; backup: AgentLink | null; support_phone: string };
+type AgentCardData = { primary: AgentLink | null; backup: AgentLink | null; support_phone: string; plan: 'DEDICATED' | 'EXPLORE' | null };
 type Category = { id: string; name: string; icon: string; code: string; image_url: string | null; workflow_template: string };
 type HomeData = { active_requests: any[]; popular_services: any[] };
 
@@ -18,9 +18,27 @@ const dial = (phone: string) => callPhone(phone);
 const chat = (phone: string) => openWhatsApp(phone);
 
 /** Personal agent card: placed directly below the header, above search and categories. */
-function AgentCard({ data, onWrite }: { data: AgentCardData | null; onWrite: () => void }) {
+function AgentCard({ data, onWrite, onSubscribe }: { data: AgentCardData | null; onWrite: () => void; onSubscribe: () => void }) {
   if (!data) return null;
   const a = data.primary;
+  if (!a && data.plan !== 'DEDICATED') {
+    // Explore customers: invite them to subscribe; meanwhile the on-duty team handles requests.
+    return (
+      <LinearGradient colors={gradient.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.agentCard}>
+        <Text style={{ color: '#CFEBD9', fontSize: font.xs }}>You're exploring BUZZER</Text>
+        <Text style={{ color: colors.white, fontWeight: '800', fontSize: font.lg }}>Get your own dedicated agent</Text>
+        <Text style={{ color: '#E3F5EA', fontSize: font.sm, marginTop: 2 }}>One person who speaks your language and handles everything for you. Free.</Text>
+        <Row style={{ marginTop: space.md, gap: space.sm }}>
+          <Pressable accessibilityRole="button" onPress={onSubscribe} style={styles.writeBtn}>
+            <Text style={{ color: colors.forest, fontSize: font.sm, fontWeight: '800' }}>⭐ Subscribe now</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={onWrite} style={[styles.backupRow, { flex: 1, marginTop: 0 }]}>
+            <Text style={{ color: colors.white, fontSize: font.xs, fontWeight: '600' }} numberOfLines={2}>✍️ Write to the BUZZER team</Text>
+          </Pressable>
+        </Row>
+      </LinearGradient>
+    );
+  }
   if (!a) {
     return (
       <Card style={styles.agentCard}>
@@ -76,7 +94,10 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string) => void }) {
   const deals = useQuery(() => api.get<any[]>('/api/v1/catalogue/deals?limit=10'));
   const { cart } = useCart();
   const search = useQuery(() => (q.trim().length >= 2 ? api.get<any[]>(`/api/v1/catalogue/search?q=${encodeURIComponent(q.trim())}`) : Promise.resolve([])), [q]);
-  useOnRefocus(home.refresh);
+  useOnRefocus(() => {
+    home.refresh();
+    agent.refresh();
+  });
 
   const refresh = () => {
     agent.refresh();
@@ -103,7 +124,7 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string) => void }) {
         </View>
       </SafeAreaView>
       <Screen refreshing={agent.refreshing || home.refreshing} onRefresh={refresh}>
-        {agent.loading ? <Loading label="Finding your agent…" /> : agent.error ? <ErrorState message={agent.error} onRetry={agent.reload} /> : <AgentCard data={agent.data} onWrite={() => nav.push('WriteToAgent', {})} />}
+        {agent.loading ? <Loading label="Finding your agent…" /> : agent.error ? <ErrorState message={agent.error} onRetry={agent.reload} /> : <AgentCard data={agent.data} onWrite={() => nav.push('WriteToAgent', {})} onSubscribe={() => nav.push('SubscribeAgent')} />}
 
         <Row style={{ gap: space.sm }}>
           <View style={styles.search}>

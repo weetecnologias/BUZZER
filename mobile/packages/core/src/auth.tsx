@@ -117,7 +117,7 @@ function OtpLogin({ app, brand, onSignedIn }: { app: AppType; brand: { title: st
             <View style={styles.card}>
               {step === 'phone' ? (
                 <>
-                  <Text style={styles.cardTitle}>Login with your mobile number</Text>
+                  <Text style={styles.cardTitle}>{app === 'CUSTOMER' ? 'Sign up or log in with your mobile number' : 'Login with your mobile number'}</Text>
                   <TextField label="Mobile number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="98765 43210"
                     maxLength={14} autoComplete="tel" />
                   {app === 'CUSTOMER' || app === 'PARTNER' ? (

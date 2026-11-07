@@ -15,8 +15,8 @@ import java.util.UUID;
 
 /**
  * Dedicated-agent allocation.
- * Ranking: existing relationship > not on leave > same city > locality coverage > language match >
- * availability > lowest relative workload (active customers / capacity). Managers are used only when no
+ * Ranking: existing relationship > not on leave > same city > locality coverage > speaks the customer's first-choice
+ * language > number of the customer's languages spoken > availability > lowest relative workload (active customers / capacity). Managers are used only when no
  * regular agent is available. A backup agent is allocated alongside the primary.
  */
 @Service
@@ -81,6 +81,11 @@ public class AgentAllocationService {
                 .param("c", customerUserId).param("r", role).query(UUID.class).optional();
     }
 
+    /** On-duty agent for a single request from a customer without a dedicated agent ("Explore" customers). No link is created. */
+    public Optional<Candidate> onDuty(UUID customerUserId) {
+        return rank(customerUserId, null).stream().findFirst();
+    }
+
     /** Best available agent other than {@code excludeAgentId}; used for escalations and backups. */
     public Optional<Candidate> bestAvailable(UUID customerUserId, UUID excludeAgentId) {
         return rank(customerUserId, excludeAgentId).stream().findFirst();
@@ -89,7 +94,9 @@ public class AgentAllocationService {
     private List<Candidate> rank(UUID customerUserId, UUID exclude) {
         return jdbc.sql("""
                 WITH cust AS (
-                  SELECT cp.city_id, cp.locality_id, COALESCE(cp.preferred_language, u.preferred_language) AS lang
+                  SELECT cp.city_id, cp.locality_id,
+                         lower(COALESCE(cp.agent_preferences->'languages'->>0, cp.preferred_language, u.preferred_language)) AS lang,
+                         ARRAY(SELECT lower(x) FROM jsonb_array_elements_text(COALESCE(cp.agent_preferences->'languages', '[]'::jsonb)) x) AS langs
                   FROM customer_profiles cp JOIN users u ON u.id = cp.user_id WHERE cp.user_id = :c)
                 SELECT a.id, a.user_id, a.display_name,
                        (SELECT count(*) FROM customer_agent_links l WHERE l.agent_id = a.id AND l.active)::float / GREATEST(a.max_customers, 1) AS load_ratio
@@ -100,7 +107,8 @@ public class AgentAllocationService {
                 ORDER BY
                   a.is_manager ASC,
                   (cust.locality_id IS NOT NULL AND EXISTS (SELECT 1 FROM agent_localities al WHERE al.agent_id = a.id AND al.locality_id = cust.locality_id)) DESC,
-                  (cust.lang IS NOT NULL AND position(lower(cust.lang) in lower(a.languages)) > 0) DESC,
+                  COALESCE(cust.lang = ANY(string_to_array(lower(replace(a.languages, ' ', '')), ',')), FALSE) DESC,
+                  COALESCE(cardinality(ARRAY(SELECT unnest(cust.langs) INTERSECT SELECT unnest(string_to_array(lower(replace(a.languages, ' ', '')), ',')))), 0) DESC,
                   (a.availability = 'AVAILABLE') DESC,
                   load_ratio ASC, a.created_at ASC""")
                 .param("c", customerUserId).param("ex", exclude).query(Candidate.class).list();

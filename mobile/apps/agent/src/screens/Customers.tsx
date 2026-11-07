@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
 import {
   api, Badge, Button, callPhone, Card, Chip, colors, dateTime, EmptyState, ErrorState, font, GradientHeader, KeyValue, Loading, Notice, radius, Row,
-  Screen, space, StatusBadge, TextField, useAction, useNav, useOnRefocus, useQuery,
+  Screen, space, StatusBadge, TextField, useAction, useNav, useOnRefocus, useQuery, LANGUAGE_NAMES, preferenceLines,
 } from '@buzzer/core';
 
 export function CustomersScreen() {
@@ -46,7 +46,8 @@ export function CustomerDetailScreen({ params }: { params: { id: string; name?: 
           <>
             <Card>
               <KeyValue k="Phone" v={d.profile.phone} />
-              <KeyValue k="Language" v={d.profile.preferred_language ?? '—'} />
+              <KeyValue k="Plan" v={d.plan === 'DEDICATED' ? 'Dedicated agent (subscribed)' : d.plan === 'EXPLORE' ? 'Exploring (no dedicated agent)' : '—'} />
+              {preferenceLines(d.preferences).length ? preferenceLines(d.preferences).map(([k, v]) => <KeyValue key={k} k={k} v={v} />) : <KeyValue k="Language" v={LANGUAGE_NAMES[d.profile.preferred_language] ?? d.profile.preferred_language ?? '—'} />}
               <KeyValue k="City" v={d.profile.city_name ?? '—'} />
               <KeyValue k="Customer since" v={dateTime(d.profile.created_at)} />
               <Row style={{ marginTop: space.sm }}>

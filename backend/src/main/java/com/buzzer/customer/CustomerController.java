@@ -70,10 +70,12 @@ public class CustomerController {
     private final ExecutionService execution;
     private final JdbcClient jdbc;
     private final String supportPhone;
+    private final AgentSubscriptionService subscriptions;
 
     public CustomerController(CustomerService customers, RequestService requestService, RequestRepository requests,
                               QuotationService quotations, PaymentService payments, ExecutionService execution, JdbcClient jdbc,
-                              @Value("${buzzer.support.phone:+914000000000}") String supportPhone) {
+                              @Value("${buzzer.support.phone:+914000000000}") String supportPhone, AgentSubscriptionService subscriptions) {
+        this.subscriptions = subscriptions;
         this.customers = customers;
         this.requestService = requestService;
         this.requests = requests;
@@ -96,6 +98,29 @@ public class CustomerController {
         return ApiResponse.of(customers.profile(CurrentUser.id()));
     }
 
+    public record SubscribeInput(@Size(max = 160) String fullName, @NotNull @Size(min = 1, max = 5) List<String> languages,
+                                 String contactMethod, String contactTime, @Size(max = 25) List<UUID> interestCategoryIds,
+                                 UUID localityId, @Size(max = 500) String notes) {}
+
+    /** Welcome screen state: has the customer chosen "Subscribe" or "Explore" yet, plus the subscribe form options. */
+    @GetMapping("/onboarding")
+    public ApiResponse<Map<String, Object>> onboarding() {
+        return ApiResponse.of(subscriptions.status(CurrentUser.id()));
+    }
+
+    /** Subscribe for a dedicated agent: saves preferences and matches the best agent (language, area, availability, workload). */
+    @PostMapping("/agent/subscribe")
+    public ApiResponse<Map<String, Object>> subscribe(@Valid @RequestBody SubscribeInput in) {
+        return ApiResponse.of(subscriptions.subscribe(CurrentUser.id(), new AgentSubscriptionService.Preferences(in.fullName(), in.languages(),
+                in.contactMethod(), in.contactTime(), in.interestCategoryIds(), in.localityId(), in.notes())));
+    }
+
+    /** "Explore the app first" - no dedicated agent; requests go to the on-duty agent. */
+    @PostMapping("/onboarding/explore")
+    public ApiResponse<Map<String, Object>> explore() {
+        return ApiResponse.of(subscriptions.explore(CurrentUser.id()));
+    }
+
     /** Personal agent card shown directly below the Customer App header. */
     @GetMapping("/agent")
     public ApiResponse<Map<String, Object>> agent() {
@@ -110,6 +135,7 @@ public class CustomerController {
         out.put("primary", links.stream().filter(l -> "PRIMARY".equals(l.get("link_role"))).findFirst().orElse(null));
         out.put("backup", links.stream().filter(l -> !"PRIMARY".equals(l.get("link_role"))).findFirst().orElse(null));
         out.put("support_phone", supportPhone);
+        out.put("plan", jdbc.sql("SELECT agent_plan FROM customer_profiles WHERE user_id = :u").param("u", me).query(String.class).optional().orElse(null));
         return ApiResponse.of(out);
     }
 

@@ -1,6 +1,5 @@
 package com.buzzer.identity;
 
-import com.buzzer.agent.AgentAllocationService;
 import com.buzzer.common.AuditService;
 import com.buzzer.common.BusinessException;
 import com.buzzer.common.ErrorCode;
@@ -26,16 +25,13 @@ public class AuthService {
     private final TokenService tokens;
     private final UserRepository users;
     private final CustomerService customers;
-    private final AgentAllocationService allocation;
     private final AuditService audit;
 
-    public AuthService(OtpService otp, TokenService tokens, UserRepository users, CustomerService customers,
-                       AgentAllocationService allocation, AuditService audit) {
+    public AuthService(OtpService otp, TokenService tokens, UserRepository users, CustomerService customers, AuditService audit) {
         this.otp = otp;
         this.tokens = tokens;
         this.users = users;
         this.customers = customers;
-        this.allocation = allocation;
         this.audit = audit;
     }
 
@@ -77,8 +73,8 @@ public class AuthService {
             Set<Role> current = users.roles(user.id());
             if (!current.contains(Role.CUSTOMER)) {
                 users.grantRole(user.id(), Role.CUSTOMER, null);
+                // No agent yet: the app's welcome screen offers "Subscribe for a dedicated agent" or "Explore".
                 customers.ensureProfile(user.id(), null);
-                allocation.allocatePrimary(user.id(), null, "AUTO_ON_REGISTRATION");
                 created = true;
             }
         }

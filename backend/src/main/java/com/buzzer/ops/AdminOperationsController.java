@@ -139,7 +139,9 @@ public class AdminOperationsController {
     @GetMapping("/customers")
     public ApiResponse<List<Map<String, Object>>> customers(@RequestParam(required = false) String q) {
         return ApiResponse.of(jdbc.sql("""
-                SELECT u.id, u.full_name, u.phone, u.status, u.created_at, ci.name AS city_name,
+                SELECT u.id, u.full_name, u.phone, u.status, u.created_at, ci.name AS city_name, cp.agent_plan, cp.subscribed_at,
+                       array_to_string(ARRAY(SELECT jsonb_array_elements_text(COALESCE(cp.agent_preferences->'languages', '[]'::jsonb))), ', ') AS languages,
+                       cp.agent_preferences->>'contact_method' AS contact_method,
                        (SELECT a.display_name FROM customer_agent_links l JOIN agents a ON a.id = l.agent_id
                           WHERE l.customer_user_id = u.id AND l.active AND l.link_role = 'PRIMARY') AS primary_agent,
                        (SELECT a.display_name FROM customer_agent_links l JOIN agents a ON a.id = l.agent_id

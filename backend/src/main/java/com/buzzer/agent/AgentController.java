@@ -82,12 +82,15 @@ public class AgentController {
     private final EscalationService escalations;
     private final com.buzzer.quotation.InstantQuoteService instantQuotes;
     private final com.buzzer.ops.TransferService transfers;
+    private final com.buzzer.customer.AgentSubscriptionService subscriptions;
 
     public AgentController(AgentAccess access, RequestService requestService, RequestRepository requests, QuotationService quotations,
                            PartnerEligibility eligibility, AssignmentService assignments, ExecutionService execution, PaymentService payments,
                            CustomerService customers, AgentAllocationService allocation, UserRepository users,
                            NotificationService notifications, AuditService audit, JdbcClient jdbc, EscalationService escalations,
-                           com.buzzer.quotation.InstantQuoteService instantQuotes, com.buzzer.ops.TransferService transfers) {
+                           com.buzzer.quotation.InstantQuoteService instantQuotes, com.buzzer.ops.TransferService transfers,
+                           com.buzzer.customer.AgentSubscriptionService subscriptions) {
+        this.subscriptions = subscriptions;
         this.escalations = escalations;
         this.instantQuotes = instantQuotes;
         this.transfers = transfers;
@@ -166,6 +169,9 @@ public class AgentController {
         access.requireCustomer(me, customerId);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("profile", customers.profile(customerId));
+        Map<String, Object> st = subscriptions.status(customerId);
+        out.put("plan", st.get("plan"));
+        out.put("preferences", st.get("preferences"));
         out.put("addresses", customers.addresses(customerId));
         out.put("requests", requestService.customerRequests(customerId, false));
         return ApiResponse.of(out);
@@ -185,6 +191,7 @@ public class AgentController {
         users.grantRole(user.id(), Role.CUSTOMER, CurrentUser.id());
         users.updateProfile(user.id(), in.fullName(), null, in.preferredLanguage());
         customers.ensureProfile(user.id(), me.agentId());
+        subscriptions.markDedicatedByAgent(user.id());
         allocation.reassign(user.id(), me.agentId(), "PRIMARY", CurrentUser.id(), "Registered by agent");
         allocation.bestAvailable(user.id(), me.agentId()).ifPresent(b -> allocation.reassign(user.id(), b.id(), "BACKUP", CurrentUser.id(), "Auto backup"));
         audit.record(CurrentUser.id(), "AGENT", "CUSTOMER_REGISTERED_BY_AGENT", "USER", user.id(), Map.of("consentMethod", in.consentMethod()));

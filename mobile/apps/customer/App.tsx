@@ -13,6 +13,7 @@ import { ProfileScreen } from './src/screens/Profile';
 import { NotificationsScreen } from './src/screens/Notifications';
 import { CartScreen, WishlistScreen, WriteToAgentScreen } from './src/screens/Cart';
 import { CartProvider } from './src/cart';
+import { OnboardingGate, SubscribeAgentScreen } from './src/screens/Onboarding';
 
 const TABS = [
   { key: 'home', label: 'Home', glyph: '🏠' },
@@ -41,6 +42,7 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="light" />
       <AuthProvider app="CUSTOMER" brand={{ title: 'BUZZER', tagline: 'Your Personal Assistant for Everyday Life' }}>
+        <OnboardingGate>
         <CartProvider>
         <StackNavigator
           initial={{ name: 'Tabs' }}
@@ -55,9 +57,11 @@ export default function App() {
             Cart: () => <CartScreen />,
             Wishlist: () => <WishlistScreen />,
             WriteToAgent: ({ params }) => <WriteToAgentScreen params={params} />,
+            SubscribeAgent: () => <SubscribeAgentScreen />,
           }}
         />
         </CartProvider>
+        </OnboardingGate>
       </AuthProvider>
     </SafeAreaProvider>
   );

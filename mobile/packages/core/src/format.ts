@@ -68,3 +68,18 @@ export function statusTone(s: string): Tone {
   if (['REQUEST_CREATED', 'AGENT_REVIEW', 'PARTNER_QUOTATION'].includes(s)) return 'info';
   return 'neutral';
 }
+
+export const LANGUAGE_NAMES: Record<string, string> = {
+  te: 'Telugu', en: 'English', hi: 'Hindi', ur: 'Urdu', ta: 'Tamil', kn: 'Kannada', ml: 'Malayalam', mr: 'Marathi', bn: 'Bengali',
+};
+
+/** Human-readable summary of a customer's dedicated-agent preferences (languages in order, contact method and time). */
+export function preferenceLines(p: { languages?: string[]; contact_method?: string; contact_time?: string; notes?: string | null } | null | undefined) {
+  if (!p) return [] as [string, string][];
+  const lines: [string, string][] = [];
+  if (p.languages?.length) lines.push(['Languages', p.languages.map((c) => LANGUAGE_NAMES[c] ?? c).join(' › ')]);
+  if (p.contact_method) lines.push(['Contact via', p.contact_method === 'IN_APP_CHAT' ? 'In-app chat' : p.contact_method === 'WHATSAPP' ? 'WhatsApp' : 'Phone call']);
+  if (p.contact_time) lines.push(['Best time', p.contact_time.charAt(0) + p.contact_time.slice(1).toLowerCase()]);
+  if (p.notes) lines.push(['Notes', p.notes]);
+  return lines;
+}
