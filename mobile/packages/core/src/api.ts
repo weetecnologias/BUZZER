@@ -123,6 +123,29 @@ class Client {
     return json.data as T;
   }
 
+  /** Multipart upload (e.g. request attachments). Retries once after refreshing an expired session. */
+  async upload<T>(path: string, form: FormData): Promise<T> {
+    const send = () => fetch(`${API_URL}${path}`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', ...(this.access ? { Authorization: `Bearer ${this.access}` } : {}) },
+      body: form,
+    });
+    let res: Response;
+    try {
+      res = await send();
+      if (res.status === 401 && (await this.refresh())) res = await send();
+    } catch {
+      throw new ApiError(0, 'NETWORK', 'Could not reach BUZZER. Check your connection and try again.');
+    }
+    const text = await res.text();
+    const json = text ? JSON.parse(text) : {};
+    if (!res.ok) {
+      const err = json.error ?? {};
+      throw new ApiError(res.status, err.code ?? 'ERROR', err.message ?? 'Upload failed', err.details ?? {});
+    }
+    return json.data as T;
+  }
+
   get<T>(path: string) {
     return this.request<T>('GET', path);
   }

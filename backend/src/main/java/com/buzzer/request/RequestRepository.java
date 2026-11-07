@@ -93,6 +93,14 @@ public class RequestRepository {
             SELECT r.id, r.request_number, r.status, r.priority, r.created_at, r.updated_at, r.preferred_start, r.description,
                    r.created_via, r.booking_mode, r.estimated_total, r.sla_due_at, r.first_agent_response_at, r.escalated_at, r.customer_confirmed_at,
                    r.handling_mode, r.agent_source, r.agent_seen_at, r.handed_to_agent_at, r.handover_reason,
+                   r.request_type, r.vertical, r.lifecycle, r.parent_request_id,
+                   CASE
+                     WHEN r.status IN ('REQUEST_CREATED','AGENT_REVIEW','PARTNER_QUOTATION') THEN 'OPEN'
+                     WHEN r.status IN ('CUSTOMER_APPROVAL','PAYMENT_PENDING') THEN 'ACTION_NEEDED'
+                     WHEN r.status IN ('COMPLETED','SETTLEMENT_PENDING','SETTLED') THEN 'DONE'
+                     WHEN r.status IN ('CANCELLED','REJECTED','EXPIRED','REFUNDED','REFUND_PENDING') THEN 'CLOSED'
+                     ELSE 'IN_PROGRESS' END AS status_group,
+                   (SELECT count(*) FROM request_attachments ra WHERE ra.request_id = r.id AND ra.deleted_at IS NULL) AS attachment_count,
                    COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(r.line_items) = 'array' THEN r.line_items END), 0) AS item_count,
                    (SELECT max(h.created_at) FROM request_status_history h WHERE h.request_id = r.id) AS last_activity_at,
                    (SELECT count(*) FROM quotations q WHERE q.request_id = r.id AND q.status = 'SHARED') AS open_quote_count,

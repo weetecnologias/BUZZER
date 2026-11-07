@@ -86,6 +86,8 @@ public class RequestService {
         if (!List.of("SELF", "AGENT_ASSISTED", "AGENT_DIRECT", "DIRECT_QUOTE").contains(bookingMode)) throw BusinessException.invalid("Invalid booking mode");
         // DIRECT_QUOTE: partners quote straight to the customer; the subscriber's agent (if any) only watches.
         boolean automated = "DIRECT_QUOTE".equals(bookingMode);
+        String vertical = jdbc.sql("SELECT vertical FROM categories WHERE id = :c").param("c", ctx.categoryId()).query(String.class).single();
+        RequestType requestType = RequestType.forCreation(bookingMode, vertical);
         if (cmd.description() != null && cmd.description().length() > 4000) throw BusinessException.invalid("Description too long");
         if (cmd.preferredStart() != null && cmd.preferredEnd() != null && cmd.preferredEnd().isBefore(cmd.preferredStart())) {
             throw BusinessException.invalid("Preferred end time must be after the start time");
@@ -139,12 +141,12 @@ public class RequestService {
                   consent_at, customer_confirmed_at, category_id, subcategory_id, service_item_id, city_id, locality_id, address_id,
                   address_snapshot, answers, description, preferred_start, preferred_end, priority, status, agent_id,
                   first_agent_response_at, sla_due_at, idempotency_key, booking_mode, line_items, estimated_total, has_quote_items, agent_source,
-                  handling_mode)
+                  handling_mode, request_type, vertical, lifecycle)
                 VALUES (:num, :cust, :by, :via, CAST(:consent AS text), CASE WHEN CAST(:consent AS text) IS NULL THEN NULL ELSE now() END,
                   CASE WHEN :byAgent THEN NULL ELSE now() END, :cat, :sub, :svc, :city, :loc, :addr, CAST(:snap AS jsonb),
                   CAST(:answers AS jsonb), :desc, :ps, :pe, :prio, :status, :agent,
                   CASE WHEN :byAgent THEN now() ELSE NULL END, now() + make_interval(mins => :sla), :key,
-                  :mode, CAST(:lines AS jsonb), :est, :hasQuote, :agentSource, :handling)
+                  :mode, CAST(:lines AS jsonb), :est, :hasQuote, :agentSource, :handling, :rtype, :vert, :life)
                 RETURNING id""")
                 .param("num", number).param("cust", cmd.customerUserId()).param("by", cmd.createdBy()).param("via", cmd.createdVia())
                 .param("consent", cmd.consentMethod()).param("byAgent", byAgent).param("cat", ctx.categoryId())
@@ -154,7 +156,8 @@ public class RequestService {
                 .param("prio", priority).param("status", status).param("agent", agentId).param("sla", slaMinutes)
                 .param("key", cmd.idempotencyKey()).param("mode", bookingMode).param("lines", json.write(cmd.lineItems()))
                 .param("est", cmd.estimatedTotal()).param("hasQuote", cmd.hasQuoteItems()).param("agentSource", agentSource)
-                .param("handling", automated ? "AUTOMATED" : "AGENT").query(UUID.class).single();
+                .param("handling", automated ? "AUTOMATED" : "AGENT").param("rtype", requestType.name()).param("vert", vertical)
+                .param("life", "REQUEST_V1").query(UUID.class).single();
         jdbc.sql("""
                 INSERT INTO request_status_history(request_id, from_status, to_status, actor_user_id, actor_role, reason)
                 VALUES (:r, NULL, :s, :a, :role, :reason)""")
@@ -225,6 +228,7 @@ public class RequestService {
                        r.service_item_id, r.answers::text AS answers, r.address_snapshot::text AS address_snapshot,
                        r.preferred_end, r.consent_method, r.consent_at, r.cancel_reason, c.workflow_template, c.advisory_notice,
                        au.phone AS agent_phone, a.photo_url AS agent_photo, r.line_items::text AS line_items, r.has_quote_items, r.agent_source,
+                       r.parent_request_id,
                        (SELECT cp.agent_plan FROM customer_profiles cp WHERE cp.user_id = r.customer_user_id) AS customer_plan,
                        (SELECT cp.agent_preferences::text FROM customer_profiles cp WHERE cp.user_id = r.customer_user_id) AS customer_preferences,""")
                 .replace("LEFT JOIN agents a ON a.id = r.agent_id", "LEFT JOIN agents a ON a.id = r.agent_id LEFT JOIN users au ON au.id = a.user_id")
@@ -238,7 +242,39 @@ public class RequestService {
         out.put("history", requests.history(requestId));
         out.put("messages", requests.messages(requestId));
         out.put("viewer_role", viewerRole);
+        out.put("request_type_label", RequestType.valueOf((String) base.get("request_type")).label());
+        out.put("parent", base.get("parent_request_id") == null ? null : jdbc.sql("""
+                SELECT id, request_number, request_type, status FROM service_requests WHERE id = :p""")
+                .param("p", base.get("parent_request_id")).query().listOfRows().stream().findFirst().orElse(null));
+        out.put("children", jdbc.sql("""
+                SELECT r.id, r.request_number, r.request_type, r.status, r.created_at, c.name AS category_name, s.name AS subcategory_name
+                FROM service_requests r JOIN categories c ON c.id = r.category_id LEFT JOIN subcategories s ON s.id = r.subcategory_id
+                WHERE r.parent_request_id = :id ORDER BY r.created_at""").param("id", requestId).query().listOfRows());
         return out;
+    }
+
+    /** Links a request created for an assistance case to its parent (same customer only). */
+    @Transactional
+    public void linkParent(UUID childId, UUID parentId, UUID customerUserId, UUID actor, String role) {
+        RequestRepository.Row parent = requests.get(parentId);
+        if (!parent.customerUserId().equals(customerUserId)) throw BusinessException.invalid("The parent request belongs to another customer");
+        if (childId.equals(parentId)) throw BusinessException.invalid("A request can't be its own parent");
+        RequestRepository.Row child = requests.get(childId);
+        jdbc.sql("UPDATE service_requests SET parent_request_id = :p WHERE id = :c").param("p", parentId).param("c", childId).update();
+        requests.note(parentId, parent.status(), actor, role, "Linked request " + child.requestNumber() + " created for this case");
+    }
+
+    /** Customer's requests, optionally filtered by type and status group ("My Requests"). */
+    public List<Map<String, Object>> customerRequests(UUID customerUserId, String type, String group) {
+        if (type != null && !type.isBlank()) RequestType.parse(type);
+        if (group != null && !group.isBlank() && !RequestType.STATUS_GROUPS.contains(group.toUpperCase())) throw BusinessException.invalid("Unknown status group");
+        return jdbc.sql(RequestRepository.LIST_SELECT + """
+                WHERE r.customer_user_id = :c AND (CAST(:t AS text) IS NULL OR r.request_type = CAST(:t AS text))
+                  AND (CAST(:g AS text) IS NULL OR""" + " " + RequestType.STATUS_GROUP_SQL + """
+                 = CAST(:g AS text))
+                ORDER BY r.created_at DESC LIMIT 200""").param("c", customerUserId)
+                .param("t", type == null || type.isBlank() ? null : type.toUpperCase())
+                .param("g", group == null || group.isBlank() ? null : group.toUpperCase()).query().listOfRows();
     }
 
     public List<Map<String, Object>> customerRequests(UUID customerUserId, boolean openOnly) {

@@ -62,10 +62,12 @@ public class DirectQuoteService {
     private final SettingsService settings;
     private final OpsExceptionService ops;
     private final AuditService audit;
+    private final com.buzzer.request.AttachmentService attachments;
 
     public DirectQuoteService(JdbcClient jdbc, Json json, BusinessIds ids, RequestRepository requests, PartnerEligibility eligibility,
                               AgentAllocationService allocation, NotificationService notifications, SettingsService settings,
-                              OpsExceptionService ops, AuditService audit) {
+                              OpsExceptionService ops, AuditService audit, com.buzzer.request.AttachmentService attachments) {
+        this.attachments = attachments;
         this.jdbc = jdbc;
         this.json = json;
         this.ids = ids;
@@ -162,6 +164,7 @@ public class DirectQuoteService {
                     m.put("line_items", q.get("line_items") == null ? null : json.tree((String) q.get("line_items")));
                     return m;
                 }).orElse(null));
+        out.put("attachments", attachments.list(requestId, true));
         out.put("can_quote", QUOTABLE.contains(RequestStatus.valueOf((String) lead.get("request_status")))
                 && List.of("INVITED", "QUOTED").contains((String) lead.get("invitation_status")));
         return out;

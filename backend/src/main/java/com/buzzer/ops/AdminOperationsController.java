@@ -70,10 +70,13 @@ public class AdminOperationsController {
     private final UserRepository users;
     private final TokenService tokens;
     private final AuditService audit;
+    private final com.buzzer.request.AttachmentService attachmentService;
 
     public AdminOperationsController(JdbcClient jdbc, PartnerService partners, AgentAllocationService allocation, OpsExceptionService ops,
                                      SettingsService settings, RequestService requestService, QuotationService quotations,
-                                     UserRepository users, TokenService tokens, AuditService audit) {
+                                     UserRepository users, TokenService tokens, AuditService audit,
+                                     com.buzzer.request.AttachmentService attachmentService) {
+        this.attachmentService = attachmentService;
         this.jdbc = jdbc;
         this.partners = partners;
         this.allocation = allocation;
@@ -287,12 +290,15 @@ public class AdminOperationsController {
 
     @GetMapping("/requests")
     public ApiResponse<List<Map<String, Object>>> requests(@RequestParam(required = false) String status, @RequestParam(required = false) String q,
+                                                           @RequestParam(required = false) String type,
                                                            @RequestParam(defaultValue = "200") int limit) {
         if (status != null) RequestStatus.valueOf(status);
+        if (type != null) com.buzzer.request.RequestType.parse(type);
         return ApiResponse.of(jdbc.sql(RequestRepository.LIST_SELECT + """
                 WHERE (CAST(:s AS text) IS NULL OR r.status = CAST(:s AS text))
+                  AND (CAST(:t AS text) IS NULL OR r.request_type = CAST(:t AS text))
                   AND (CAST(:q AS text) IS NULL OR r.request_number ILIKE '%' || CAST(:q AS text) || '%' OR cu.full_name ILIKE '%' || CAST(:q AS text) || '%')
-                ORDER BY r.created_at DESC LIMIT :l""").param("s", status).param("q", q).param("l", Math.min(limit, 1000)).query().listOfRows());
+                ORDER BY r.created_at DESC LIMIT :l""").param("s", status).param("q", q).param("t", type).param("l", Math.min(limit, 1000)).query().listOfRows());
     }
 
     @GetMapping("/requests/{id}")
@@ -300,6 +306,7 @@ public class AdminOperationsController {
         Map<String, Object> d = new LinkedHashMap<>(requestService.detail(id, "ADMIN"));
         d.put("quotations", quotations.forRequest(id, false));
         d.put("invitations", quotations.invitations(id));
+        d.put("attachments", attachmentService.list(id, false));
         d.put("assignments", jdbc.sql("""
                 SELECT a.id, a.assignment_number, a.status, a.cancel_reason, a.cancelled_by, a.created_at, p.display_name AS partner_name
                 FROM assignments a JOIN partners p ON p.id = a.partner_id WHERE a.request_id = :r ORDER BY a.created_at""").param("r", id).query().listOfRows());

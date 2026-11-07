@@ -13,18 +13,23 @@ export default function Requests() {
   const router = useRouter();
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
+  const [type, setType] = useState("");
   const params = new URLSearchParams();
   if (status) params.set("status", status);
   if (q.trim()) params.set("q", q.trim());
-  const { data, error, loading, reload } = useApi<any[]>(`admin/requests?${params}`, [status, q]);
+  if (type) params.set("type", type);
+  const { data, error, loading, reload } = useApi<any[]>(`admin/requests?${params}`, [status, q, type]);
 
   return (
     <div className="stack">
       <PageHeader title="Requests" subtitle="Monitor every request across the platform"
-        actions={<ExportMenu name="requests" title="Requests" rows={data} columns={[{ key: "request_number", label: "Request" }, { key: "category_name", label: "Category" }, { key: "subcategory_name", label: "Subcategory" }, { key: "service_name", label: "Service" }, { key: "customer_name", label: "Customer" }, { key: "agent_name", label: "Agent" }, { key: "status", label: "Status" }, { key: "booking_mode", label: "Booking mode" }, { key: "handling_mode", label: "Handling" }, { key: "estimated_total", label: "Estimated total" }, { key: "quotation_count", label: "Quotes" }, { key: "created_at", label: "Created" }]} />} />
+        actions={<ExportMenu name="requests" title="Requests" rows={data} columns={[{ key: "request_number", label: "Request" }, { key: "request_type", label: "Type" }, { key: "category_name", label: "Category" }, { key: "subcategory_name", label: "Subcategory" }, { key: "service_name", label: "Service" }, { key: "customer_name", label: "Customer" }, { key: "agent_name", label: "Agent" }, { key: "status", label: "Status" }, { key: "booking_mode", label: "Booking mode" }, { key: "handling_mode", label: "Handling" }, { key: "estimated_total", label: "Estimated total" }, { key: "quotation_count", label: "Quotes" }, { key: "created_at", label: "Created" }]} />} />
       <div className="row">
         <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 240 }} aria-label="Filter by status">
           {STATUSES.map((s) => <option key={s} value={s}>{s ? s.replace(/_/g, " ") : "All statuses"}</option>)}
+        </select>
+        <select value={type} onChange={(e) => setType(e.target.value)} style={{ width: 220 }} aria-label="Filter by type">
+          {[["", "All request types"], ["PRODUCT_RFQ", "Quotation requests"], ["SERVICE_BOOKING", "Service bookings"], ["TASK_REQUEST", "Tasks / errands"], ["PERSONAL_ASSISTANCE", "Personal assistance"], ["PRODUCT_PURCHASE", "Purchases"]].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search request ID or customer" style={{ width: 300 }} aria-label="Search" />
       </div>
@@ -38,7 +43,7 @@ export default function Requests() {
                 return (
                   <tr key={r.id} className="clickable" onClick={() => router.push(`/requests/${r.id}`)}>
                     <td className="mono">{r.request_number}</td>
-                    <td>{r.service_name || r.subcategory_name || r.category_name}<div className="muted small">{r.category_name}</div></td>
+                    <td>{r.service_name || r.subcategory_name || r.category_name}<div className="muted small">{r.category_name} • {String(r.request_type ?? "").replace(/_/g, " ").toLowerCase()}{Number(r.attachment_count) ? ` • 📎 ${r.attachment_count}` : ""}</div></td>
                     <td>{r.customer_name ?? "—"}<div className="muted small">{r.locality_name ?? ""}</div></td>
                     <td>{r.agent_name ?? <span className="muted">{r.handling_mode === "AUTOMATED" ? "No agent needed" : "Unassigned"}</span>}{r.handling_mode === "AUTOMATED" ? <div><span className="badge tone-info">🤖 Automated</span></div> : r.handed_to_agent_at ? <div className="muted small">handed over: {r.handover_reason}</div> : null}</td>
                     <td><Status value={r.status} />{r.escalated_at ? <div><Status value="ESCALATED" /></div> : null}</td>

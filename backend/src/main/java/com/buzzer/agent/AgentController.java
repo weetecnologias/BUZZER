@@ -49,7 +49,7 @@ public class AgentController {
 
     public record CreateRequestInput(@NotNull UUID customerUserId, UUID categoryId, UUID subcategoryId, UUID serviceItemId, UUID addressId,
                                      Map<String, Object> answers, @Size(max = 4000) String description, OffsetDateTime preferredStart,
-                                     OffsetDateTime preferredEnd, String priority, @NotBlank String consentMethod) {}
+                                     OffsetDateTime preferredEnd, String priority, @NotBlank String consentMethod, UUID parentRequestId) {}
 
     public record InviteInput(@NotEmpty List<UUID> partnerIds) {}
 
@@ -84,6 +84,7 @@ public class AgentController {
     private final com.buzzer.ops.TransferService transfers;
     private final com.buzzer.customer.AgentSubscriptionService subscriptions;
     private final com.buzzer.quotation.DirectQuoteService directQuotes;
+    private final com.buzzer.request.AttachmentService attachments;
 
     public AgentController(AgentAccess access, RequestService requestService, RequestRepository requests, QuotationService quotations,
                            PartnerEligibility eligibility, AssignmentService assignments, ExecutionService execution, PaymentService payments,
@@ -91,7 +92,9 @@ public class AgentController {
                            NotificationService notifications, AuditService audit, JdbcClient jdbc, EscalationService escalations,
                            com.buzzer.quotation.InstantQuoteService instantQuotes, com.buzzer.ops.TransferService transfers,
                            com.buzzer.customer.AgentSubscriptionService subscriptions,
-                           com.buzzer.quotation.DirectQuoteService directQuotes) {
+                           com.buzzer.quotation.DirectQuoteService directQuotes,
+                           com.buzzer.request.AttachmentService attachments) {
+        this.attachments = attachments;
         this.directQuotes = directQuotes;
         this.subscriptions = subscriptions;
         this.escalations = escalations;
@@ -218,9 +221,14 @@ public class AgentController {
         if (!List.of("PHONE_CALL", "WHATSAPP", "IN_PERSON", "IN_APP_CHAT", "EMAIL").contains(in.consentMethod())) {
             throw BusinessException.invalid("Record how the customer gave consent");
         }
-        return ApiResponse.of(requestService.create(new RequestService.CreateCommand(in.customerUserId(), CurrentUser.id(), "AGENT_APP",
+        RequestService.Created created = requestService.create(new RequestService.CreateCommand(in.customerUserId(), CurrentUser.id(), "AGENT_APP",
                 in.categoryId(), in.subcategoryId(), in.serviceItemId(), in.addressId(), in.answers(), in.description(), in.preferredStart(),
-                in.preferredEnd(), in.priority(), key, in.consentMethod())));
+                in.preferredEnd(), in.priority(), key, in.consentMethod()));
+        if (in.parentRequestId() != null && !created.duplicate()) {
+            authorised(in.parentRequestId());
+            requestService.linkParent(created.id(), in.parentRequestId(), in.customerUserId(), CurrentUser.id(), "AGENT");
+        }
+        return ApiResponse.of(created);
     }
 
     @GetMapping("/requests")
@@ -241,6 +249,7 @@ public class AgentController {
         d.put("quotations", quotations.forRequest(id, false));
         d.put("invitations", quotations.invitations(id));
         d.put("payments", payments.forRequest(id));
+        d.put("attachments", attachments.list(id, false));
         d.put("assignments", jdbc.sql("""
                 SELECT a.id, a.assignment_number, a.status, a.cancel_reason, a.cancelled_by, a.created_at, p.display_name AS partner_name
                 FROM assignments a JOIN partners p ON p.id = a.partner_id WHERE a.request_id = :r ORDER BY a.created_at""")
@@ -287,6 +296,15 @@ public class AgentController {
     }
 
     public record TransferInput(@NotNull UUID agentId, @NotBlank @Size(max = 500) String reason) {}
+
+    /** Agent adds a photo/PDF the customer sent by phone or WhatsApp. */
+    @PostMapping(value = "/requests/{id}/attachments", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<Map<String, Object>> uploadAttachment(@PathVariable UUID id, @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+                                                             @RequestParam(defaultValue = "PRIVATE") String visibility,
+                                                             @RequestParam(required = false) String note) {
+        authorised(id);
+        return ApiResponse.of(attachments.upload(id, CurrentUser.id(), "AGENT", file, visibility, note));
+    }
 
     /** Agent drives an automated (direct-quote) request personally. */
     @PostMapping("/requests/{id}/take-over")

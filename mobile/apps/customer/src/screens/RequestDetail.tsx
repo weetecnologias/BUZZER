@@ -1,9 +1,51 @@
 import React, { useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import {
   api, Badge, Button, callPhone, Card, colors, ConfirmDialog, dateTime, ErrorState, font, GradientHeader, KeyValue, Label, Loading, money,
   newIdempotencyKey, Notice, radius, Row, Screen, space, StatusBadge, statusLabel, TextField, Timeline, useAction, useNav, useOnRefocus, useQuery,
+  AttachmentList, Toggle,
 } from '@buzzer/core';
+
+const CLOSED_STATES = ['SETTLED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'REFUNDED'];
+
+/** Photos and PDFs for a request: pick, choose whether quoting partners may see it, upload. */
+function Attachments({ requestId, items, requestType, closed, onChange }: {
+  requestId: string; items: any[]; requestType: string; closed: boolean; onChange: () => void;
+}) {
+  const act = useAction();
+  const [share, setShare] = useState(requestType === 'PRODUCT_RFQ' || requestType === 'SERVICE_BOOKING');
+  const pick = async () => {
+    const res = await DocumentPicker.getDocumentAsync({ type: ['image/*', 'application/pdf'], multiple: false, copyToCacheDirectory: true });
+    if (res.canceled || !res.assets?.length) return;
+    const a = res.assets[0];
+    const form = new FormData();
+    if (Platform.OS === 'web' && (a as any).file) form.append('file', (a as any).file, a.name);
+    else form.append('file', { uri: a.uri, name: a.name, type: a.mimeType ?? 'application/octet-stream' } as any);
+    form.append('visibility', share ? 'PARTNERS' : 'PRIVATE');
+    if (await act.run(() => api.upload(`/api/v1/customer/requests/${requestId}/attachments`, form))) onChange();
+  };
+  return (
+    <Card>
+      <Row style={{ justifyContent: 'space-between', marginBottom: space.sm }}>
+        <Text style={{ fontWeight: '700', color: colors.text }}>📎 Photos & documents</Text>
+        <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>{items.length}/10</Text>
+      </Row>
+      <AttachmentList items={items} canDelete={(x) => x.uploader_role === 'CUSTOMER' && !closed}
+        onDelete={async (x) => { if (await act.run(() => api.del(`/api/v1/customer/requests/${requestId}/attachments/${x.id}`))) onChange(); }} />
+      {!closed && items.length < 10 ? (
+        <View style={{ marginTop: space.sm }}>
+          {requestType === 'PRODUCT_RFQ' || requestType === 'SERVICE_BOOKING' ? (
+            <Toggle label="Share with partners who are quoting" value={share} onChange={setShare} />
+          ) : null}
+          <Button title={act.busy ? 'Uploading…' : '+ Add photo or PDF'} variant="outline" small loading={act.busy} onPress={pick} />
+          <Text style={{ color: colors.textSecondary, fontSize: font.xs, marginTop: 4 }}>PNG, JPG, WebP or PDF up to 5 MB. Only you, your agent{share ? ' and quoting partners' : ''} can see it.</Text>
+        </View>
+      ) : null}
+      {act.error ? <ErrorState message={act.error} /> : null}
+    </Card>
+  );
+}
 
 /** Item-by-item quote from a partner (direct "Get quotes" requests). */
 function ItemLines({ lines }: { lines: any[] }) {
@@ -109,6 +151,7 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
             <StatusBadge status={status} />
           </Row>
           <KeyValue k="Request ID" v={d.request_number} />
+          {d.request_type_label ? <KeyValue k="Type" v={d.request_type_label} /> : null}
           <KeyValue k="Created" v={dateTime(d.created_at)} />
           {d.agent_name ? <KeyValue k="Your agent" v={d.agent_name} /> : null}
           {d.preferred_start ? <KeyValue k="Preferred time" v={dateTime(d.preferred_start)} /> : null}
@@ -318,6 +361,24 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
             }
           }} />
         </Card>
+
+        <Attachments requestId={params.id} items={d.attachments ?? []} requestType={d.request_type} closed={CLOSED_STATES.includes(status)} onChange={reload} />
+
+        {d.parent || (d.children ?? []).length ? (
+          <Card>
+            <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>🔗 Related requests</Text>
+            {d.parent ? (
+              <Pressable accessibilityRole="button" onPress={() => nav.push('RequestDetail', { id: d.parent.id })} style={{ paddingVertical: 4 }}>
+                <Text style={{ color: colors.emerald, fontWeight: '700' }}>↑ Part of #{d.parent.request_number} ({statusLabel(d.parent.status)})</Text>
+              </Pressable>
+            ) : null}
+            {(d.children ?? []).map((ch: any) => (
+              <Pressable key={ch.id} accessibilityRole="button" onPress={() => nav.push('RequestDetail', { id: ch.id })} style={{ paddingVertical: 4 }}>
+                <Text style={{ color: colors.emerald, fontWeight: '700' }}>↳ #{ch.request_number} • {ch.subcategory_name ?? ch.category_name} • {statusLabel(ch.status)}</Text>
+              </Pressable>
+            ))}
+          </Card>
+        ) : null}
 
         {/* Timeline */}
         <Card>

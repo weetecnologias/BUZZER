@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import {
   api, Badge, Button, callPhone, openWhatsApp, Card, colors, ConfirmDialog, dateTime, ErrorState, font, GradientHeader, KeyValue, Loading, money, Notice, radius,
-  preferenceLines, Row, Screen, space, StatusBadge, statusLabel, TextField, Timeline, useAction, useNav, useOnRefocus, useQuery,
+  preferenceLines, Row, Screen, space, StatusBadge, statusLabel, TextField, Timeline, useAction, useNav, useOnRefocus, useQuery, AttachmentList,
 } from '@buzzer/core';
 
 export function AgentRequestScreen({ params }: { params: { id: string } }) {
@@ -68,6 +68,7 @@ export function AgentRequestScreen({ params }: { params: { id: string } }) {
           </Row>
           {d.agent_source === 'ON_DUTY' ? <Notice tone="info" message="On-duty request: this customer is exploring and has no dedicated agent yet. Great service here is the best reason for them to subscribe." /> : null}
           {preferenceLines(d.customer_preferences).map(([k, v]) => <KeyValue key={k} k={k} v={v} />)}
+          {d.request_type_label ? <KeyValue k="Type" v={d.request_type_label} /> : null}
           <KeyValue k="Category" v={`${d.category_name}${d.subcategory_name ? ' › ' + d.subcategory_name : ''}`} />
           <KeyValue k="Created" v={`${dateTime(d.created_at)} via ${d.created_via === 'AGENT_APP' ? 'agent' : 'app'}`} />
           <KeyValue k="Priority" v={d.priority} />
@@ -225,6 +226,23 @@ export function AgentRequestScreen({ params }: { params: { id: string } }) {
           </Row>
         </Card>
 
+        {(d.attachments ?? []).length ? (
+          <Card>
+            <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>📎 Photos & documents</Text>
+            <AttachmentList items={d.attachments} />
+          </Card>
+        ) : null}
+        {d.parent || (d.children ?? []).length ? (
+          <Card>
+            <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>🔗 Related requests</Text>
+            {d.parent ? <Pressable onPress={() => nav.push('Request', { id: d.parent.id })}><Text style={{ color: colors.emerald, fontWeight: '700' }}>↑ Part of #{d.parent.request_number}</Text></Pressable> : null}
+            {(d.children ?? []).map((ch: any) => (
+              <Pressable key={ch.id} onPress={() => nav.push('Request', { id: ch.id })}>
+                <Text style={{ color: colors.emerald, fontWeight: '700', paddingVertical: 2 }}>↳ #{ch.request_number} • {ch.subcategory_name ?? ch.category_name} • {statusLabel(ch.status)}</Text>
+              </Pressable>
+            ))}
+          </Card>
+        ) : null}
         <Card>
           <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>Timeline — how this ticket moved</Text>
           <Timeline history={d.history} initial={8} />

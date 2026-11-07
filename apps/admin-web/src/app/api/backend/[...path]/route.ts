@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { ACCESS_COOKIE, BACKEND_URL, jsonError, refreshSession } from "@/lib/server";
 
 /** Only these backend areas are reachable through the admin BFF. */
-const ALLOWED = [/^admin\//, /^catalogue\//, /^locations\//, /^notifications/, /^auth\/me$/, /^media\//];
+const ALLOWED = [/^admin\//, /^catalogue\//, /^locations\//, /^notifications/, /^auth\/me$/, /^media\//, /^attachments\//];
 
 async function forward(request: Request, path: string[]) {
   const joined = path.join("/");

@@ -6,9 +6,81 @@ Plan: [transformation-plan.md](transformation-plan.md) · Audit: [transformation
 |---|---|
 | 1. Audit | ✅ Done |
 | 2. Architecture & database impact | ✅ Done, approved (all 7 recommended decisions) |
-| **3. Unified UI/UX & navigation** | ✅ **Done** — acceptance tests pass |
-| 4. Request engine | ⏭ Next |
-| 5–10 | Planned |
+| 3. Unified UI/UX & navigation | ✅ Done |
+| **4. Request engine** | ✅ **Done** — acceptance tests pass |
+| 5. Marketplace & RFQ | ⏭ Next |
+| 6–10 | Planned |
+
+---
+
+## Stage 4 — Unified request engine
+
+### Delivered
+
+- **Shared request identity:** every request now has a `request_type` (PRODUCT_PURCHASE, PRODUCT_RFQ, SERVICE_BOOKING, TASK_REQUEST,
+  PERSONAL_ASSISTANCE), a `vertical` and a `lifecycle` (which state machine owns its status: `REQUEST_V1` today; `ORDER` arrives in
+  Stage 5, `TASK` in Stage 8). Existing requests were **backfilled**; nothing was moved or deleted.
+- **Type rules at creation:** marketplace items → PRODUCT_RFQ; services → SERVICE_BOOKING; Tasks & Errands categories and
+  "describe a task" → TASK_REQUEST; *Write to my agent* / Special Requests → PERSONAL_ASSISTANCE.
+- **Status groups** shared by every type: OPEN · ACTION_NEEDED · IN_PROGRESS · DONE · CLOSED.
+- **`requests` view** — readable name for the hub with the currently assigned partner (for reporting).
+- **Private attachments** (photos and PDFs): type detected from file content (PNG, JPEG, WebP, PDF), max 5 MB, 10 per request,
+  safe file names, soft delete, every upload in the timeline. Files are **never public** — viewers get **HMAC-signed links that
+  expire after 15 minutes**; tampered/expired links return 404. Visibility **PRIVATE** (customer, agent, admin) or **PARTNERS**
+  (also the partners invited to quote).
+- **Parent / child requests:** an agent can create requests for an assistance case (`parent_request_id`, same customer only);
+  both sides show the link.
+
+**Apps**
+- Customer: *My Requests* filters by type (Quotes · Services · Tasks · Assistance) and group (Active · Needs you · Done · Closed);
+  cards show type, 📎 count and "Needs your decision". Request detail shows the type, **Photos & documents** (add photo/PDF with a
+  "Share with partners who are quoting" switch, remove own files) and **Related requests**. Uses Expo's official
+  `expo-document-picker` (Android, iOS, web).
+- Agent: request type, attachments, related requests.
+- Partner: photos/documents the customer shared appear on the lead (item quotes and standard quotes).
+- Admin: Requests list filter and column for type (+ 📎 count); request detail shows type/vertical/lifecycle, attachments with
+  thumbnails and related requests.
+
+### Database migration
+- `V11__request_engine.sql` — `service_requests.request_type`, `vertical`, `lifecycle`, `parent_request_id` (+ backfill and indexes),
+  `requests` view, `request_attachments` table. Additive only.
+
+### API contracts (new / changed)
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/customer/requests?type=&group=` | customer | Filters; rows include `request_type`, `status_group`, `attachment_count` |
+| POST | `/api/v1/customer/requests/{id}/attachments` | customer (owner) | multipart `file`, `visibility` PRIVATE/PARTNERS, `note` |
+| GET | `/api/v1/customer/requests/{id}/attachments` | customer (owner) | With signed `url` |
+| DELETE | `/api/v1/customer/requests/{id}/attachments/{attachmentId}` | customer (uploader) | Soft delete |
+| POST | `/api/v1/agent/requests/{id}/attachments` | authorised agent | Files the customer sent by phone/WhatsApp |
+| POST | `/api/v1/agent/requests` | agent | Optional `parent_request_id` |
+| GET | `/api/v1/attachments/{id}?exp=&sig=` | signed link | Serves the file inline, `no-store`, `nosniff` |
+| GET | `/api/v1/partner/leads/{invitationId}` | invited partner | Adds `attachments` (PARTNERS only) |
+| GET | `/api/v1/admin/requests?type=` | admin | Type filter |
+| POST | `/api/v1/customer/agent-request` | customer | Optional `kind: TASK` → task request |
+| GET | `/api/v1/customer/requests/{id}` (and agent/admin detail) | owner/agent/admin | Adds `request_type_label`, `attachments`, `parent`, `children` |
+
+### Files
+- **New:** `request/RequestType.java`, `request/AttachmentService.java`, `request/AttachmentController.java`, `V11__request_engine.sql`,
+  `RequestEngineTest.java`, `mobile/packages/core/src/Attachments.tsx`.
+- **Changed:** `RequestService`, `RequestRepository`, `CustomerController`, `AgentController`, `DirectQuoteService`, `AdminOperationsController`,
+  `CartController`, `CartService`, `SecurityConfig`; core `api.ts` (multipart upload), `index.ts`; customer `RequestDetail.tsx`, `Requests.tsx`,
+  `package.json` (expo-document-picker); agent `AgentRequest.tsx`; partner `Leads.tsx`; admin requests list/detail, BFF allow-list.
+
+### Tests
+- `RequestEngineTest` (3): types/vertical/lifecycle for RFQ, service, task and assistance requests + filters + `requests` view;
+  attachments — content-type detection, size limit, unsafe names cleaned, other customers blocked, signed link works, tampered and
+  expired links 404, invited partner sees only shared files, uninvited partner blocked, delete, timeline; agent child requests with
+  a parent, foreign parent refused.
+- **Full suite: 50 passed, 0 failed.** Typecheck passes (customer, partner, agent, admin); admin production build passes.
+- Live check on the dev backend: Ravi's existing hardware requests backfilled as quotation requests; uploaded a photo shared
+  with partners; signed link 200, tampered link 404; Sri Sai Hardware sees it on the lead; timeline shows the upload.
+- Browser (phone size): My Requests type/group filters, request type on detail, attachments card. The native file chooser can't
+  be driven from the browser pane, so the upload itself was verified through the API and tests.
+
+### Rollback
+Revert the Stage 4 commit; V11 is additive (older code ignores the new columns, view and table).
 
 ---
 

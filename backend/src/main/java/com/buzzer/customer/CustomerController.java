@@ -72,11 +72,13 @@ public class CustomerController {
     private final String supportPhone;
     private final AgentSubscriptionService subscriptions;
     private final com.buzzer.quotation.DirectQuoteService directQuotes;
+    private final com.buzzer.request.AttachmentService attachments;
 
     public CustomerController(CustomerService customers, RequestService requestService, RequestRepository requests,
                               QuotationService quotations, PaymentService payments, ExecutionService execution, JdbcClient jdbc,
                               @Value("${buzzer.support.phone:+914000000000}") String supportPhone, AgentSubscriptionService subscriptions,
-                              com.buzzer.quotation.DirectQuoteService directQuotes) {
+                              com.buzzer.quotation.DirectQuoteService directQuotes, com.buzzer.request.AttachmentService attachments) {
+        this.attachments = attachments;
         this.directQuotes = directQuotes;
         this.subscriptions = subscriptions;
         this.customers = customers;
@@ -174,8 +176,33 @@ public class CustomerController {
     }
 
     @GetMapping("/requests")
-    public ApiResponse<List<Map<String, Object>>> listRequests(@RequestParam(defaultValue = "false") boolean openOnly) {
+    public ApiResponse<List<Map<String, Object>>> listRequests(@RequestParam(defaultValue = "false") boolean openOnly,
+                                                               @RequestParam(required = false) String type,
+                                                               @RequestParam(required = false) String group) {
+        if (type != null || group != null) return ApiResponse.of(requestService.customerRequests(CurrentUser.id(), type, group));
         return ApiResponse.of(requestService.customerRequests(CurrentUser.id(), openOnly));
+    }
+
+    /** Photos / PDFs for a request (multipart field "file"). visibility PARTNERS shares it with partners invited to quote. */
+    @PostMapping(value = "/requests/{id}/attachments", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<Map<String, Object>> uploadAttachment(@PathVariable UUID id, @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+                                                             @RequestParam(defaultValue = "PRIVATE") String visibility,
+                                                             @RequestParam(required = false) String note) {
+        owned(id);
+        return ApiResponse.of(attachments.upload(id, CurrentUser.id(), "CUSTOMER", file, visibility, note));
+    }
+
+    @GetMapping("/requests/{id}/attachments")
+    public ApiResponse<List<Map<String, Object>>> listAttachments(@PathVariable UUID id) {
+        owned(id);
+        return ApiResponse.of(attachments.list(id, false));
+    }
+
+    @DeleteMapping("/requests/{id}/attachments/{attachmentId}")
+    public ApiResponse<Map<String, Object>> deleteAttachment(@PathVariable UUID id, @PathVariable UUID attachmentId) {
+        owned(id);
+        attachments.delete(id, attachmentId, CurrentUser.id());
+        return ApiResponse.of(Map.of("deleted", true));
     }
 
     @GetMapping("/requests/{id}")
@@ -183,6 +210,7 @@ public class CustomerController {
         RequestRepository.Row r = owned(id);
         Map<String, Object> detail = new LinkedHashMap<>(requestService.detail(id, "CUSTOMER"));
         detail.put("quotations", quotations.forRequest(id, true));
+        detail.put("attachments", attachments.list(id, false));
         detail.put("payments", payments.forRequest(id));
         detail.put("invoices", payments.invoicesForRequest(id));
         detail.put("booking", jdbc.sql("""

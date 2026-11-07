@@ -33,7 +33,7 @@ public class CartController {
     public record CheckoutBody(String mode, UUID addressId, OffsetDateTime preferredStart, @Size(max = 2000) String note,
                                @Size(max = 20) List<CartService.ExtraItem> extraItems) {}
 
-    public record AgentRequestInput(@Size(max = 2000) String message, UUID categoryId, UUID addressId, OffsetDateTime preferredStart) {}
+    public record AgentRequestInput(@Size(max = 2000) String message, UUID categoryId, UUID addressId, OffsetDateTime preferredStart, String kind) {}
 
     private final CartService cart;
     private final JdbcClient jdbc;
@@ -78,7 +78,8 @@ public class CartController {
     @PostMapping("/api/v1/customer/agent-request")
     public ApiResponse<RequestService.Created> writeToAgent(@Valid @RequestBody AgentRequestInput in,
                                                            @RequestHeader(value = "Idempotency-Key", required = false) String key) {
-        return ApiResponse.of(cart.writeToAgent(CurrentUser.id(), in.message(), in.categoryId(), in.addressId(), in.preferredStart(), key));
+        return ApiResponse.of(cart.writeToAgent(CurrentUser.id(), in.message(), in.categoryId() != null ? in.categoryId() : "TASK".equals(in.kind()) ? cart.firstTaskCategory() : null,
+                in.addressId(), in.preferredStart(), key));
     }
 
     @GetMapping("/api/v1/customer/wishlist")

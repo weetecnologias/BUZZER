@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { useApi } from "@/lib/api";
-import { TransferModal } from "@/components/workflow";
+import { TransferModal, previewSrc } from "@/components/workflow";
 import { Card, ErrorBox, Loading, money, PageHeader, Status, when } from "@/components/ui";
 
 export default function RequestDetail() {
@@ -21,6 +21,7 @@ export default function RequestDetail() {
       <div className="grid grid-2">
         <Card title="Summary">
           <table><tbody>
+            <tr><td className="muted">Type</td><td><b>{d.request_type_label}</b> <span className="muted small">({d.vertical} • lifecycle {d.lifecycle})</span></td></tr>
             <tr><td className="muted">Customer</td><td>{d.customer_name} ({d.customer_phone})</td></tr>
             <tr><td className="muted">Agent</td><td>{d.agent_name ?? "—"}</td></tr>
             <tr><td className="muted">Created</td><td>{when(d.created_at)} via {d.created_via}</td></tr>
@@ -58,6 +59,23 @@ export default function RequestDetail() {
           </tbody></table>
         </Card>
       </div>
+      <Card title={`Attachments (${(d.attachments ?? []).length})`}>
+        {(d.attachments ?? []).length ? (
+          <table><thead><tr><th>File</th><th>Type</th><th>Visibility</th><th>Uploaded by</th><th>When</th></tr></thead>
+            <tbody>{d.attachments.map((a: any) => (
+              <tr key={a.id}><td>{a.content_type.startsWith("image/") ? <img className="thumb" src={previewSrc(a.url)} alt="" style={{ marginRight: 8, verticalAlign: "middle" }} /> : "📄 "}<a href={previewSrc(a.url)} target="_blank" rel="noreferrer">{a.file_name}</a></td>
+                <td className="small">{a.content_type}</td><td>{a.visibility === "PARTNERS" ? "Shared with quoting partners" : "Private"}</td>
+                <td>{a.uploaded_by_name} <span className="muted small">({a.uploader_role})</span></td><td>{when(a.created_at)}</td></tr>
+            ))}</tbody></table>
+        ) : <span className="muted">No attachments.</span>}
+        <p className="muted small">Links are signed and expire after 15 minutes — reload the page for fresh links.</p>
+      </Card>
+      {d.parent || (d.children ?? []).length ? (
+        <Card title="Related requests">
+          {d.parent ? <div>↑ Part of <Link href={`/requests/${d.parent.id}`}>{d.parent.request_number}</Link> ({d.parent.request_type})</div> : null}
+          {(d.children ?? []).map((ch: any) => <div key={ch.id}>↳ <Link href={`/requests/${ch.id}`}>{ch.request_number}</Link> — {ch.subcategory_name ?? ch.category_name} • <Status value={ch.status} /></div>)}
+        </Card>
+      ) : null}
       <Card title="Lifecycle & audit trail">
         <table><thead><tr><th>When</th><th>Transition</th><th>Actor</th><th>Reason</th></tr></thead>
           <tbody>{(d.history ?? []).map((h: any, i: number) => (

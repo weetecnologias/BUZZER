@@ -274,6 +274,13 @@ public class CartService {
         return created;
     }
 
+    /** First enabled Tasks & Errands category (used when the customer describes a task in their own words). */
+    public UUID firstTaskCategory() {
+        return jdbc.sql("""
+                SELECT c.id FROM categories c JOIN platform_verticals v ON v.code = c.vertical AND v.enabled
+                WHERE c.vertical = 'TASKS' AND c.active ORDER BY c.sort_order LIMIT 1""").query(UUID.class).optional().orElse(null);
+    }
+
     /** "Write to my agent": a free-text request that goes straight to the customer's dedicated agent. */
     @Transactional
     public RequestService.Created writeToAgent(UUID customer, String message, UUID categoryId, UUID addressId, OffsetDateTime preferredStart,

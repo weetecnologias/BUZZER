@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
-  api, Badge, Button, Card, Chip, colors, ConfirmDialog, dateTime, EmptyState, ErrorState, font, GradientHeader, KeyValue, Loading, money, Notice,
+  api, AttachmentList, Badge, Button, Card, Chip, colors, ConfirmDialog, dateTime, EmptyState, ErrorState, font, GradientHeader, KeyValue, Loading, money, Notice,
   radius, Row, Screen, space, StatusBadge, TextField, Toggle, useAction, useNav, useOnRefocus, useQuery,
 } from '@buzzer/core';
 
@@ -184,6 +184,12 @@ function ItemQuoteScreen({ lead }: { lead: Lead }) {
           {d.description?.includes('Note:') ? <Text style={{ color: colors.text, marginTop: 4 }}>📝 {d.description.split('Note:')[1].trim()}</Text> : null}
           <Text style={{ color: colors.textSecondary, fontSize: font.xs, marginTop: 6 }}>Mark each item available or not and set your price. Prices from your approved price list are pre-filled.</Text>
         </Card>
+        {(d.attachments ?? []).length ? (
+          <Card>
+            <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>📎 Photos & documents from the customer</Text>
+            <AttachmentList items={d.attachments} showVisibility={false} />
+          </Card>
+        ) : null}
 
         {(d.line_items ?? []).map((x: any) => {
           const v = draft[x.key] ?? { available: true, price: '', note: '' };
@@ -253,6 +259,7 @@ function ItemQuoteScreen({ lead }: { lead: Lead }) {
 
 function StandardQuoteScreen({ lead: l }: { lead: Lead }) {
   const nav = useNav();
+  const detail = useQuery(() => api.get<any>(`/api/v1/partner/leads/${l.invitation_id}`), [l.invitation_id]);
   const answers = l.answers ? JSON.parse(l.answers) : {};
   const [f, setF] = useState({ scope_of_work: '', labour_amount: '', materials_amount: '', visit_fee: '', tax_amount: '', discount_amount: '',
     warranty: '', exclusions: '', cancellation_terms: '', pay_on_delivery_allowed: false, valid_hours: '48' });
@@ -286,6 +293,12 @@ function StandardQuoteScreen({ lead: l }: { lead: Lead }) {
           {l.description ? <Text style={{ marginTop: space.sm, color: colors.text }}>{l.description}</Text> : null}
           <Notice tone="neutral" message="Customer contact and full address are shared only after you are assigned and confirm the booking." />
         </Card>
+        {(detail.data?.attachments ?? []).length ? (
+          <Card>
+            <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>📎 Photos & documents from the customer</Text>
+            <AttachmentList items={detail.data.attachments} showVisibility={false} />
+          </Card>
+        ) : null}
         {done ? <Notice tone="success" message={done} /> : l.status !== 'INVITED' ? (
           <Notice tone="info" message={`This lead is ${l.status.toLowerCase()}.`} />
         ) : (
