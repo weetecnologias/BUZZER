@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "BUZZER",
+    "slug": "buzzer-customer",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#064E32"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "in.buzzer.customer"
+    },
+    "android": {
+      "package": "in.buzzer.customer",
+      "adaptiveIcon": {
+        "backgroundColor": "#064E32",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "name": "BUZZER"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "BUZZER uses your location to fill in your service address so partners can find you."
+        }
+      ]
+    ],
+    "extra": {
+      "app": "CUSTOMER"
+    }
+  }
+}

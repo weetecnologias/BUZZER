@@ -1,0 +1,37 @@
+# Local full-stack environment (optional — `mvn spring-boot:test-run` works without Docker).
+#   docker compose -f infra/docker-compose.yml --env-file .env up --build
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: buzzer
+      POSTGRES_USER: ${BUZZER_DB_USER:-buzzer}
+      POSTGRES_PASSWORD: ${BUZZER_DB_PASSWORD:?set BUZZER_DB_PASSWORD}
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${BUZZER_DB_USER:-buzzer}"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+  backend:
+    build: ../backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BUZZER_DB_URL: jdbc:postgresql://postgres:5432/buzzer
+      BUZZER_DB_USER: ${BUZZER_DB_USER:-buzzer}
+      BUZZER_DB_PASSWORD: ${BUZZER_DB_PASSWORD}
+      BUZZER_JWT_SECRET: ${BUZZER_JWT_SECRET:?set BUZZER_JWT_SECRET}
+      BUZZER_OTP_PEPPER: ${BUZZER_OTP_PEPPER:?set BUZZER_OTP_PEPPER}
+      BUZZER_PAYMENT_WEBHOOK_SECRET: ${BUZZER_PAYMENT_WEBHOOK_SECRET:?set BUZZER_PAYMENT_WEBHOOK_SECRET}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+    ports: ["8080:8080"]
+
+volumes:
+  pgdata:

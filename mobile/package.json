@@ -1,0 +1,14 @@
+{
+  "name": "buzzer-mobile",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "customer": "npm --workspace @buzzer/customer-app run start",
+    "partner": "npm --workspace @buzzer/partner-app run start",
+    "agent": "npm --workspace @buzzer/agent-app run start",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

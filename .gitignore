@@ -1,0 +1,32 @@
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.keystore
+*.jks
+
+# Java
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+web-build/
+.expo/
+*.tsbuildinfo
+npm-debug.log*
+
+# Local data
+.local-data/
+dist/

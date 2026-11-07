@@ -1,0 +1,31 @@
+# LOCAL DEVELOPMENT ONLY. Never use this profile in staging or production.
+# These are throwaway development values, not real credentials.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/devseed
+    # The dev seed is V1000, so later schema migrations (V3, V4, ...) must be allowed to apply after it.
+    out-of-order: true
+
+buzzer:
+  security:
+    jwt-secret: ${BUZZER_JWT_SECRET:dev-only-jwt-secret-change-me-0123456789abcdef}
+  otp:
+    pepper: ${BUZZER_OTP_PEPPER:dev-only-otp-pepper}
+    # Returns the OTP in the API response so the apps work without an SMS provider. DEV ONLY.
+    expose-code-in-response: true
+    max-requests-per-hour: 50
+  payments:
+    webhook-secret: ${BUZZER_PAYMENT_WEBHOOK_SECRET:dev-only-webhook-secret}
+  escalation:
+    poll-ms: 30000
+  cors:
+    allowed-origins: "http://localhost:*,http://127.0.0.1:*"
+  health:
+    customer-app-url: http://localhost:8081
+    partner-app-url: http://localhost:8082
+    agent-app-url: http://localhost:8083
+    admin-panel-url: http://localhost:3000/api/health
+
+logging:
+  level:
+    com.buzzer: DEBUG
