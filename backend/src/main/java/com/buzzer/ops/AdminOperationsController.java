@@ -292,7 +292,7 @@ public class AdminOperationsController {
     public ApiResponse<List<Map<String, Object>>> requests(@RequestParam(required = false) String status, @RequestParam(required = false) String q,
                                                            @RequestParam(required = false) String type,
                                                            @RequestParam(defaultValue = "200") int limit) {
-        if (status != null) RequestStatus.valueOf(status);
+        if (status != null && !status.matches("[A-Z_]{3,40}")) throw com.buzzer.common.BusinessException.invalid("Unknown status");
         if (type != null) com.buzzer.request.RequestType.parse(type);
         return ApiResponse.of(jdbc.sql(RequestRepository.LIST_SELECT + """
                 WHERE (CAST(:s AS text) IS NULL OR r.status = CAST(:s AS text))
@@ -307,6 +307,8 @@ public class AdminOperationsController {
         d.put("quotations", quotations.forRequest(id, false));
         d.put("invitations", quotations.invitations(id));
         d.put("attachments", attachmentService.list(id, false));
+        d.put("order", jdbc.sql("SELECT o.id, o.order_number, o.status, o.total_amount, o.fulfilment, o.payment_method, p.display_name AS shop_name FROM orders o JOIN partners p ON p.id = o.partner_id WHERE o.request_id = :r")
+                .param("r", id).query().listOfRows().stream().findFirst().orElse(null));
         d.put("assignments", jdbc.sql("""
                 SELECT a.id, a.assignment_number, a.status, a.cancel_reason, a.cancelled_by, a.created_at, p.display_name AS partner_name
                 FROM assignments a JOIN partners p ON p.id = a.partner_id WHERE a.request_id = :r ORDER BY a.created_at""").param("r", id).query().listOfRows());

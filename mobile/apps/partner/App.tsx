@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { AuthProvider, BottomTabs, NotificationsInbox, StackNavigator, useAuth, useNav } from '@buzzer/core';
+import { api, AuthProvider, BottomTabs, NotificationsInbox, StackNavigator, useAuth, useNav, useQuery } from '@buzzer/core';
 import { RegistrationScreen } from './src/screens/Registration';
 import { DashboardScreen } from './src/screens/Dashboard';
 import { LeadsScreen, LeadDetailScreen } from './src/screens/Leads';
@@ -10,23 +10,34 @@ import { JobsScreen, JobDetailScreen } from './src/screens/Jobs';
 import { EarningsScreen } from './src/screens/Earnings';
 import { AccountScreen } from './src/screens/Account';
 import { PriceListScreen } from './src/screens/PriceList';
+import { CatalogueScreen, ListingFormScreen, LocationFormScreen, ProposeProductScreen, ShopHomeScreen, ShopOrderScreen } from './src/screens/Shop';
 
-const TABS = [
-  { key: 'home', label: 'Dashboard', glyph: '🏠' },
-  { key: 'leads', label: 'Leads', glyph: '📥' },
-  { key: 'jobs', label: 'Jobs', glyph: '🧰' },
-  { key: 'earnings', label: 'Earnings', glyph: '💰' },
-  { key: 'account', label: 'Account', glyph: '👤' },
-];
+/** Role-based tabs: shops (retail, wholesale, distributor) get a Shop tab; service providers keep Jobs. */
+function tabsFor(roles: { role: string; status: string }[]) {
+  const has = (r: string[]) => roles.some((x) => r.includes(x.role) && x.status !== 'REJECTED');
+  const shop = has(['RETAIL_SHOP', 'WHOLESALER', 'DISTRIBUTOR']);
+  const service = has(['SERVICE_PROVIDER', 'TASK_PARTNER']) || !shop;
+  return [
+    { key: 'home', label: shop && service ? 'Home' : 'Dashboard', glyph: '🏠' },
+    { key: 'leads', label: shop && !service ? 'RFQ inbox' : 'Leads', glyph: '📥' },
+    ...(shop ? [{ key: 'shop', label: 'Shop', glyph: '🏪' }] : []),
+    ...(service ? [{ key: 'jobs', label: 'Jobs', glyph: '🧰' }] : []),
+    { key: 'earnings', label: shop && service ? 'Money' : 'Earnings', glyph: '💰' },
+    { key: 'account', label: 'Account', glyph: '👤' },
+  ];
+}
 
 function Tabs() {
   const [tab, setTab] = useState('home');
+  const me = useQuery(() => api.get<any>('/api/v1/partner/me'));
+  const TABS = tabsFor(me.data?.roles ?? []);
   return (
     <View style={{ flex: 1 }}>
       <View style={{ flex: 1 }}>
         {tab === 'home' && <DashboardScreen onOpenTab={setTab} />}
         {tab === 'leads' && <LeadsScreen />}
         {tab === 'jobs' && <JobsScreen />}
+        {tab === 'shop' && <ShopHomeScreen />}
         {tab === 'earnings' && <EarningsScreen />}
         {tab === 'account' && <AccountScreen />}
       </View>
@@ -48,6 +59,11 @@ function Root() {
         JobDetail: ({ params }) => <JobDetailScreen params={params} />,
         Notifications: () => <NotificationsWrapper />,
         PriceList: () => <PriceListScreen />,
+        ShopOrder: ({ params }) => <ShopOrderScreen params={params} />,
+        Catalogue: () => <CatalogueScreen />,
+        ListingForm: ({ params }) => <ListingFormScreen params={params} />,
+        ProposeProduct: () => <ProposeProductScreen />,
+        LocationForm: ({ params }) => <LocationFormScreen params={params ?? {}} />,
       }}
     />
   );

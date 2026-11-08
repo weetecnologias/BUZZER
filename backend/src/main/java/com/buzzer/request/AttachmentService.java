@@ -54,7 +54,7 @@ public class AttachmentService {
     @Transactional
     public Map<String, Object> upload(UUID requestId, UUID uploaderUserId, String role, MultipartFile file, String visibility, String note) {
         RequestRepository.Row r = requests.lock(requestId);
-        if (!r.statusEnum().isOpen()) throw BusinessException.invalid("Attachments can't be added to a closed request");
+        if (java.util.Set.of("SETTLED", "CANCELLED", "REJECTED", "EXPIRED", "REFUNDED", "VENDOR_REJECTED").contains(r.status())) throw BusinessException.invalid("Attachments can't be added to a closed request");
         if (file == null || file.isEmpty()) throw BusinessException.invalid("Choose a file to upload");
         if (file.getSize() > MAX_BYTES) throw BusinessException.invalid("Files must be 5 MB or smaller");
         String vis = visibility == null || visibility.isBlank() ? "PRIVATE" : visibility.toUpperCase();

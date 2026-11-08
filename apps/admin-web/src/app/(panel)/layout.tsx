@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 const NAV: { section: string; items: [string, string, string][] }[] = [
   { section: "Overview", items: [["/", "📊", "Dashboard"], ["/exceptions", "🚨", "Exceptions"], ["/health", "🩺", "System health"]] },
   { section: "Operations", items: [["/requests", "📋", "Requests"], ["/customers", "👥", "Customers"], ["/agents", "🎧", "Agents"]] },
+  { section: "Marketplace", items: [["/orders", "🛍️", "Orders"], ["/shops", "🏪", "Shops & vendors"], ["/products", "📦", "Products & listings"]] },
   { section: "Partners", items: [["/partners", "🧰", "Partners & KYC"], ["/price-lists", "🏷️", "Price lists"], ["/coverage", "🗺️", "Coverage"]] },
   { section: "Configuration", items: [["/catalogue", "🗂️", "Catalogue"], ["/finance", "💰", "Finance"], ["/settings", "⚙️", "Settings & SLA"]] },
 ];

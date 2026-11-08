@@ -53,6 +53,17 @@ const LABELS: Record<string, string> = {
   DISPUTED: 'Under review',
   REFUND_PENDING: 'Refund in review',
   REFUNDED: 'Refunded',
+  // Marketplace orders
+  PLACED: 'Waiting for shop',
+  PAID: 'Paid - waiting for shop',
+  VENDOR_CONFIRMED: 'Confirmed by shop',
+  READY_FOR_PICKUP: 'Ready for pickup',
+  OUT_FOR_DELIVERY: 'Out for delivery',
+  VENDOR_REJECTED: 'Declined by shop',
+  IN_STOCK: 'In stock',
+  LIMITED: 'Few left',
+  OUT_OF_STOCK: 'Out of stock',
+  ON_REQUEST: 'On request',
 };
 
 export function statusLabel(s: string): string {
@@ -62,10 +73,10 @@ export function statusLabel(s: string): string {
 export type Tone = 'success' | 'warning' | 'danger' | 'neutral' | 'info';
 
 export function statusTone(s: string): Tone {
-  if (['COMPLETED', 'SETTLEMENT_PENDING', 'SETTLED', 'PAYMENT_CONFIRMED', 'APPROVED', 'VERIFIED', 'SUCCEEDED', 'PAID', 'AVAILABLE', 'ACCEPTED', 'CONFIRMED'].includes(s)) return 'success';
-  if (['CANCELLED', 'REJECTED', 'EXPIRED', 'NO_SHOW', 'FAILED', 'DISPUTED', 'DECLINED', 'SUSPENDED', 'UNAVAILABLE', 'ON_LEAVE'].includes(s)) return 'danger';
-  if (['PAYMENT_PENDING', 'CUSTOMER_APPROVAL', 'COMPLETION_PENDING', 'REFUND_PENDING', 'PARTNER_DECLINED', 'PENDING', 'SUBMITTED', 'REQUESTED', 'INVITED', 'BUSY', 'RESCHEDULING_REQUESTED'].includes(s)) return 'warning';
-  if (['REQUEST_CREATED', 'AGENT_REVIEW', 'PARTNER_QUOTATION'].includes(s)) return 'info';
+  if (['COMPLETED', 'SETTLEMENT_PENDING', 'SETTLED', 'PAYMENT_CONFIRMED', 'APPROVED', 'VERIFIED', 'SUCCEEDED', 'PAID', 'AVAILABLE', 'ACCEPTED', 'CONFIRMED', 'VENDOR_CONFIRMED', 'READY_FOR_PICKUP', 'IN_STOCK', 'ACTIVE'].includes(s)) return 'success';
+  if (['CANCELLED', 'REJECTED', 'EXPIRED', 'NO_SHOW', 'FAILED', 'DISPUTED', 'DECLINED', 'SUSPENDED', 'UNAVAILABLE', 'ON_LEAVE', 'VENDOR_REJECTED', 'OUT_OF_STOCK'].includes(s)) return 'danger';
+  if (['PAYMENT_PENDING', 'CUSTOMER_APPROVAL', 'COMPLETION_PENDING', 'REFUND_PENDING', 'PARTNER_DECLINED', 'PENDING', 'SUBMITTED', 'REQUESTED', 'INVITED', 'BUSY', 'RESCHEDULING_REQUESTED', 'PLACED', 'LIMITED', 'PAUSED'].includes(s)) return 'warning';
+  if (['REQUEST_CREATED', 'AGENT_REVIEW', 'PARTNER_QUOTATION', 'OUT_FOR_DELIVERY', 'ON_REQUEST'].includes(s)) return 'info';
   return 'neutral';
 }
 

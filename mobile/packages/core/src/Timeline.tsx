@@ -12,6 +12,7 @@ const ICON: Record<string, string> = {
   PARTNER_ASSIGNED: '🤝', PARTNER_CONFIRMED: '👍', PARTNER_ARRIVED: '📍', SERVICE_STARTED: '🛠️', IN_PROGRESS: '🛠️', COMPLETION_PENDING: '⏳',
   COMPLETED: '🎉', SETTLEMENT_PENDING: '🧾', SETTLED: '🏁', CANCELLED: '✖️', REJECTED: '✖️', EXPIRED: '⌛', PARTNER_DECLINED: '↩️', NO_SHOW: '🚫',
   DISPUTED: '⚠️', REFUND_PENDING: '💸', REFUNDED: '💸', RESCHEDULING_REQUESTED: '📅',
+  PLACED: '🛒', PAID: '💳', VENDOR_CONFIRMED: '🏪', READY_FOR_PICKUP: '🛍️', OUT_FOR_DELIVERY: '🛵', VENDOR_REJECTED: '✖️',
 };
 
 function iconFor(h: HistoryEntry): string {

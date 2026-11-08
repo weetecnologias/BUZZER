@@ -95,12 +95,14 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
 
   const doAccept = async () => {
     if (!accepting) return;
-    const ok = await act.run(() => api.post(`/api/v1/customer/requests/${params.id}/quotations/${accepting.quote.id}/accept`,
-      { payment_method: accepting.method }, acceptKey.current));
+    const ok = await act.run(() => api.post<any>(`/api/v1/customer/requests/${params.id}/quotations/${accepting.quote.id}/accept`,
+      { payment_method: accepting.method, fulfilment: d?.address_snapshot ? 'DELIVERY' : 'PICKUP' }, acceptKey.current));
     setAccepting(null);
     if (ok) {
       acceptKey.current = newIdempotencyKey();
-      reload();
+      // Quotation requests for products become an order with the chosen shop.
+      if (ok.order) nav.push('OrderDetail', { id: ok.order.id, justPlaced: ok.order.order_number });
+      else reload();
     }
   };
 
@@ -157,6 +159,28 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
           {d.preferred_start ? <KeyValue k="Preferred time" v={dateTime(d.preferred_start)} /> : null}
           {d.address_snapshot ? <KeyValue k="Address" v={`${d.address_snapshot.line1}${d.address_snapshot.locality_name ? ', ' + d.address_snapshot.locality_name : ''}`} /> : null}
         </Card>
+        {d.order ? (
+          <Card onPress={() => nav.push('OrderDetail', { id: d.order.id })} style={{ borderColor: colors.secondary, borderWidth: 2 }} accessibilityLabel="Open order">
+            <Row style={{ justifyContent: 'space-between' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '800', color: colors.text }}>🛍️ Order {d.order.order_number}</Text>
+                <Text style={{ color: colors.textSecondary }}>{d.order.status_label} · {money(d.order.total_amount)}</Text>
+              </View>
+              <Text style={{ color: colors.emerald, fontWeight: '900', fontSize: 20 }}>›</Text>
+            </Row>
+          </Card>
+        ) : null}
+        {Array.isArray(d.rfq_items) && d.rfq_items.length && !d.order ? (
+          <Card>
+            <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>Your list ({d.rfq_items.length} items)</Text>
+            {d.rfq_items.map((it: any) => (
+              <View key={it.key} style={{ paddingVertical: 4 }}>
+                <Text style={{ color: colors.text }}>{it.quantity}{it.unit ? ` ${it.unit}` : ''} × {it.name}</Text>
+                {it.brand_preference || it.specs ? <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>{[it.brand_preference, it.specs].filter(Boolean).join(' · ')}</Text> : null}
+              </View>
+            ))}
+          </Card>
+        ) : null}
         {Array.isArray(d.line_items) && d.line_items.length ? (
           <Card>
             <Row style={{ justifyContent: 'space-between', marginBottom: space.sm }}>
@@ -180,6 +204,9 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
         {status === 'CUSTOMER_APPROVAL' && shared.length ? (
           <>
             <Text style={{ fontSize: font.lg, fontWeight: '700', color: colors.text }}>Compare quotations</Text>
+            {d.structured_rfq ? (
+              <Button title={`📊 Compare ${shared.length} quote(s) side by side`} variant="secondary" onPress={() => nav.push('CompareQuotes', { id: params.id })} />
+            ) : null}
             {shared.map((x, i) => (
               <Card key={x.id} style={i === 0 ? { borderColor: colors.secondary, borderWidth: 2 } : undefined}>
                 <Row style={{ justifyContent: 'space-between' }}>

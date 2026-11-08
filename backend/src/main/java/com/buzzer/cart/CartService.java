@@ -50,8 +50,11 @@ public class CartService {
     private final JdbcClient jdbc;
     private final RequestService requests;
     private final com.buzzer.quotation.DirectQuoteService directQuotes;
+    private final com.buzzer.quotation.RfqService rfqs;
 
-    public CartService(JdbcClient jdbc, RequestService requests, com.buzzer.quotation.DirectQuoteService directQuotes) {
+    public CartService(JdbcClient jdbc, RequestService requests, com.buzzer.quotation.DirectQuoteService directQuotes,
+                       com.buzzer.quotation.RfqService rfqs) {
+        this.rfqs = rfqs;
         this.jdbc = jdbc;
         this.requests = requests;
         this.directQuotes = directQuotes;
@@ -264,6 +267,9 @@ public class CartService {
                     in.preferredStart(), null, "NORMAL", in.idempotencyKey() + "#" + (index++), null, mode, lineItems,
                     total.setScale(2, RoundingMode.HALF_UP), hasQuote, true));
             if ("DIRECT_QUOTE".equals(mode) && !c.duplicate()) {
+                // Shop & Buy items: a quotation request whose accepted quote becomes an order.
+                if ("PRODUCT_RFQ".equals(jdbc.sql("SELECT request_type FROM service_requests WHERE id = :id").param("id", c.id())
+                        .query(String.class).single())) rfqs.saveItemsFromLines(c.id());
                 directQuotes.dispatch(c.id());
                 c = new RequestService.Created(c.id(), c.requestNumber(),
                         jdbc.sql("SELECT status FROM service_requests WHERE id = :id").param("id", c.id()).query(String.class).single(), false);

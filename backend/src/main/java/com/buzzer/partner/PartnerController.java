@@ -96,7 +96,10 @@ public class PartnerController {
                        (SELECT count(*) FROM partner_invitations WHERE partner_id = :p AND status = 'QUOTED') AS quotes_pending,
                        (SELECT count(*) FROM assignments WHERE partner_id = :p AND status = 'ACTIVE') AS awaiting_confirmation,
                        (SELECT count(*) FROM assignments WHERE partner_id = :p AND status IN ('CONFIRMED','IN_PROGRESS')) AS in_progress,
-                       (SELECT count(*) FROM assignments WHERE partner_id = :p AND status = 'COMPLETED') AS completed""")
+                       (SELECT count(*) FROM assignments WHERE partner_id = :p AND status = 'COMPLETED') AS completed,
+                       (SELECT count(*) FROM orders WHERE partner_id = :p AND status IN ('PLACED','PAID')) AS new_orders,
+                       (SELECT count(*) FROM orders WHERE partner_id = :p AND status IN ('VENDOR_CONFIRMED','READY_FOR_PICKUP','OUT_FOR_DELIVERY')) AS active_orders,
+                       EXISTS (SELECT 1 FROM partner_roles WHERE partner_id = :p AND status = 'APPROVED' AND role IN ('RETAIL_SHOP','WHOLESALER','DISTRIBUTOR')) AS is_shop""")
                 .param("p", p).query().singleRow();
         return ApiResponse.of(Map.of("counts", counts, "earnings", ledger.partnerSummary(p), "profile", partners.profile(p).get("partner")));
     }

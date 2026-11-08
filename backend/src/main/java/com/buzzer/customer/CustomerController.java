@@ -44,7 +44,8 @@ public class CustomerController {
                                      @Size(max = 4000) String description, OffsetDateTime preferredStart, OffsetDateTime preferredEnd,
                                      String priority) {}
 
-    public record AcceptInput(@NotBlank String paymentMethod) {}
+    /** fulfilment (PICKUP / DELIVERY) applies to quotation requests that become orders. */
+    public record AcceptInput(@NotBlank String paymentMethod, String fulfilment) {}
 
     public record RejectInput(String reason, boolean clarification) {}
 
@@ -73,11 +74,14 @@ public class CustomerController {
     private final AgentSubscriptionService subscriptions;
     private final com.buzzer.quotation.DirectQuoteService directQuotes;
     private final com.buzzer.request.AttachmentService attachments;
+    private final com.buzzer.order.OrderService orders;
 
     public CustomerController(CustomerService customers, RequestService requestService, RequestRepository requests,
                               QuotationService quotations, PaymentService payments, ExecutionService execution, JdbcClient jdbc,
                               @Value("${buzzer.support.phone:+914000000000}") String supportPhone, AgentSubscriptionService subscriptions,
-                              com.buzzer.quotation.DirectQuoteService directQuotes, com.buzzer.request.AttachmentService attachments) {
+                              com.buzzer.quotation.DirectQuoteService directQuotes, com.buzzer.request.AttachmentService attachments,
+                              com.buzzer.order.OrderService orders) {
+        this.orders = orders;
         this.attachments = attachments;
         this.directQuotes = directQuotes;
         this.subscriptions = subscriptions;
@@ -211,6 +215,11 @@ public class CustomerController {
         Map<String, Object> detail = new LinkedHashMap<>(requestService.detail(id, "CUSTOMER"));
         detail.put("quotations", quotations.forRequest(id, true));
         detail.put("attachments", attachments.list(id, false));
+        detail.put("order", orders.summaryForRequest(id));
+        detail.put("rfq_items", jdbc.sql("""
+                SELECT line_key AS key, name, quantity, unit, brand_preference, specs, notes FROM request_items WHERE request_id = :r ORDER BY line_no""")
+                .param("r", id).query().listOfRows());
+        detail.put("structured_rfq", orders.isStructuredRfq(id));
         detail.put("payments", payments.forRequest(id));
         detail.put("invoices", payments.invoicesForRequest(id));
         detail.put("booking", jdbc.sql("""
@@ -243,6 +252,10 @@ public class CustomerController {
     @PostMapping("/requests/{id}/quotations/{quotationId}/accept")
     public ApiResponse<Map<String, Object>> accept(@PathVariable UUID id, @PathVariable UUID quotationId, @Valid @RequestBody AcceptInput in,
                                                    @RequestHeader("Idempotency-Key") String key) {
+        // Quotation requests for products: accepting one shop's quote creates an order (one accepted vendor per request).
+        if (orders.isStructuredRfq(id)) {
+            return ApiResponse.of(orders.acceptQuote(id, quotationId, CurrentUser.id(), in.paymentMethod(), in.fulfilment(), key));
+        }
         return ApiResponse.of(payments.acceptQuotation(id, quotationId, CurrentUser.id(), in.paymentMethod(), key));
     }
 
@@ -311,6 +324,7 @@ public class CustomerController {
             "CUSTOMER_APPROVAL");
     /** Accepted and moving: payment, partner, delivery / job in progress. */
     private static final java.util.Set<String> ORDER_STATUSES = java.util.Set.of("PAYMENT_PENDING", "PAYMENT_CONFIRMED", "PARTNER_ASSIGNED",
+            "PLACED", "PAID", "VENDOR_CONFIRMED", "READY_FOR_PICKUP", "OUT_FOR_DELIVERY",
             "PARTNER_CONFIRMED", "RESCHEDULING_REQUESTED", "PARTNER_ARRIVED", "SERVICE_STARTED", "IN_PROGRESS", "COMPLETION_PENDING", "PARTNER_DECLINED",
             "NO_SHOW");
 

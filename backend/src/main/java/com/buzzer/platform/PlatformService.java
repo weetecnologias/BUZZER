@@ -39,8 +39,10 @@ public class PlatformService {
     private final JdbcClient jdbc;
     private final CatalogueService catalogue;
     private final AuditService audit;
+    private final com.buzzer.marketplace.MarketplaceService marketplace;
 
-    public PlatformService(JdbcClient jdbc, CatalogueService catalogue, AuditService audit) {
+    public PlatformService(JdbcClient jdbc, CatalogueService catalogue, AuditService audit, com.buzzer.marketplace.MarketplaceService marketplace) {
+        this.marketplace = marketplace;
         this.jdbc = jdbc;
         this.catalogue = catalogue;
         this.audit = audit;
@@ -92,6 +94,7 @@ public class PlatformService {
             out.put("categories", List.of());
             out.put("items", List.of());
             out.put("shops", List.of());
+            out.put("products", List.of());
             return out;
         }
         String like = "%" + text + "%";
@@ -115,6 +118,9 @@ public class PlatformService {
         out.put("categories", categories);
         out.put("items", items);
         out.put("shops", shops);
+        // Products sold by local shops (full-text + fuzzy), with the lowest price and how many shops sell them.
+        out.put("products", enabled("MARKETPLACE") ? marketplace.products(text, null, null, null,
+                com.buzzer.marketplace.MarketplaceService.GeoPoint.NONE, 0, 6).get("items") : List.of());
         return out;
     }
 

@@ -160,13 +160,17 @@ class DirectQuoteFlowTest extends IntegrationTest {
         assertThat(q2.path("total_amount").decimalValue()).isEqualByComparingTo("580");
         assertThat(jdbc.sql("SELECT status FROM quotations WHERE id = ?::uuid").param(q1Id).query(String.class).single()).isEqualTo("REVISED");
 
-        // Customer approves (pay on delivery) -> exactly one partner assigned.
+        // Customer approves (pay on delivery). Since Stage 5 a shop quote for Shop & Buy items becomes an ORDER with exactly
+        // one shop (no service job / assignment); the other shop's quote is closed.
         String q2Id = q2.path("id").asText();
         var accept = api.post("/api/v1/customer/requests/" + requestId + "/quotations/" + q2Id + "/accept", customer,
                 Map.of("payment_method", "PAY_ON_DELIVERY"), ApiClient.key());
         assertThat(accept.status()).as(accept.body().toString()).isEqualTo(200);
-        assertThat(jdbc.sql("SELECT count(*) FROM assignments WHERE request_id = ?::uuid AND status = 'ACTIVE'").param(requestId)
-                .query(Integer.class).single()).isEqualTo(1);
+        assertThat(accept.data().path("order").path("status").asText()).isEqualTo("PLACED");
+        assertThat(accept.data().path("order").path("vendor_snapshot").path("name").asText()).isEqualTo("Sri Sai Hardware");
+        assertThat(jdbc.sql("SELECT count(*) FROM orders WHERE request_id = ?::uuid").param(requestId).query(Integer.class).single()).isEqualTo(1);
+        assertThat(jdbc.sql("SELECT count(*) FROM assignments WHERE request_id = ?::uuid").param(requestId).query(Integer.class).single()).isZero();
+        assertThat(jdbc.sql("SELECT lifecycle FROM service_requests WHERE id = ?::uuid").param(requestId).query(String.class).single()).isEqualTo("ORDER");
 
         // The whole journey is in the timeline, with the automatic steps marked SYSTEM.
         List<String> timeline = jdbc.sql("SELECT actor_role || ': ' || reason FROM request_status_history WHERE request_id = ?::uuid ORDER BY created_at, id")

@@ -24,6 +24,12 @@ public enum ErrorCode {
     PAYMENT_SIGNATURE_INVALID(HttpStatus.BAD_REQUEST),
     PAYMENT_PROVIDER_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE),
     DUPLICATE(HttpStatus.CONFLICT),
+    /** The product cart already holds items from another shop (one shop per cart). */
+    CART_VENDOR_MISMATCH(HttpStatus.CONFLICT),
+    /** A price changed since the customer added the item; the cart shows the new price. */
+    PRICE_CHANGED(HttpStatus.CONFLICT),
+    /** A product is no longer sold / out of stock / below the minimum order quantity. */
+    ITEM_UNAVAILABLE(HttpStatus.CONFLICT),
     CONFLICT(HttpStatus.CONFLICT),
     INTEGRATION_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR);

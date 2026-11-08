@@ -38,6 +38,12 @@ export default function RequestDetail() {
           </tbody></table>
         </Card>
       </div>
+      {d.order ? (
+        <Card title="Order">
+          <p><Link href={`/orders/${d.order.id}`}><b>{d.order.order_number}</b></Link> · {d.order.shop_name} · {money(d.order.total_amount)} · <Status value={d.order.status} /></p>
+          <p className="muted small">This request became an order ({d.order.fulfilment === "PICKUP" ? "pickup" : "shop delivery"}, {d.order.payment_method === "ONLINE" ? "online payment" : "pay later"}). Its status now follows the order.</p>
+        </Card>
+      ) : null}
       <Card title="Quotations">
         <div className="table-wrap"><table>
           <thead><tr><th>Quotation</th><th>Partner</th><th>Scope</th><th>Total</th><th>Status</th><th>Valid until</th></tr></thead>

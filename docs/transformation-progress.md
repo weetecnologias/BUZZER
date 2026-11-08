@@ -7,9 +7,144 @@ Plan: [transformation-plan.md](transformation-plan.md) · Audit: [transformation
 | 1. Audit | ✅ Done |
 | 2. Architecture & database impact | ✅ Done, approved (all 7 recommended decisions) |
 | 3. Unified UI/UX & navigation | ✅ Done |
-| **4. Request engine** | ✅ **Done** — acceptance tests pass |
-| 5. Marketplace & RFQ | ⏭ Next |
-| 6–10 | Planned |
+| 4. Request engine | ✅ Done |
+| **5. Marketplace & RFQ** | ✅ **Done** — acceptance tests A, B, C, I, M pass |
+| 6. Services & provider workflows | ⏭ Next |
+| 7–10 | Planned |
+
+---
+
+## Stage 5 — Marketplace & RFQ
+
+### Delivered
+
+**Partner types and shops**
+- A partner can hold several types: **retail shop, wholesaler, distributor, service provider, task partner**. Shop types need admin
+  approval; approving a registration approves the types it asked for, and an admin can suspend one type on its own (the shop disappears,
+  data is kept). Existing partners were backfilled from their categories.
+- **Shop locations**: address, locality / coordinates, service radius, opening hours, pickup and/or delivery, delivery fee, free-delivery
+  amount, minimum order. Every existing partner got a primary location.
+
+**Products, listings and search**
+- Shared **product catalogue** (brands, products with specifications and GST rate, variants such as colour temperature). Admins manage it;
+  shops can **propose** a missing product (admin approves it together with the shop's listing). Starter catalogue: every Hardware &
+  Supplies item plus branded products; 9 new Shop & Buy categories (medical stays **off** until licensing — decision 6).
+- **Vendor listings**: the shop's own price, MRP, stock status (in stock / few left / out of stock / on request, with "updated x ago" —
+  BUZZER does not claim real-time stock), minimum order, optional bulk price tier, lead time. New listings are reviewed by admin;
+  price and stock edits are instant. **Excel** download / upload for many listings at once.
+- **Visibility rule** (one SQL fragment for every screen): shop approved + KYC verified + open + approved shop role + approved category,
+  listing and product active, category and vertical switched on.
+- **Search**: full-text with English stemming ("bulbs" → bulb) + fuzzy matching via `pg_trgm` ("hamer" → hammer) + brand match.
+  Universal search now also returns products.
+- **Shop discovery by distance** (haversine from the customer's address or locality); **price comparison** on every product page with
+  the lowest price and nearest shop flagged.
+
+**Direct purchase (A)**
+- **One shop per cart** (adding another shop's item asks to empty the cart). Every cart view re-prices against live listings;
+  checkout refuses changed prices until the customer accepts them, and refuses unavailable / below-MOQ items.
+- Checkout: **pickup or shop delivery** (delivery area, fee, free-above and minimum order checked), **pay online or at pickup / on
+  delivery**, `Idempotency-Key` (a retried checkout returns the same order).
+- **Orders** with **immutable snapshots** of prices, GST, product details, shop and fulfilment — enforced by database triggers (order lines
+  and money can't be updated or deleted, orders can't be deleted). Order lifecycle `PAYMENT_PENDING → PAID / PLACED → VENDOR_CONFIRMED →
+  READY_FOR_PICKUP | OUT_FOR_DELIVERY → COMPLETED`, plus `CANCELLED` (customer before the shop confirms; admin anytime) and
+  `VENDOR_REJECTED`. Each order is a request-hub row (`PRODUCT_PURCHASE`, lifecycle `ORDER`), so it appears in My Requests with the same
+  timeline.
+- Payments use the existing gateway path: server-created order, **only the verified webhook marks it paid**; failure keeps the order and
+  the customer can retry. Cancel / decline after payment opens a refund for Finance to approve.
+- Hand-over with a **4-digit pickup / delivery code** shown only to the customer; wrong codes are counted (locked after 5, ops alert).
+  Completion posts commission, tax invoice, ledger entries and a payout (or records cash collected) with the existing commission rules.
+
+**Quotation requests (B, C)**
+- Customers send an **RFQ**: items with preferred brand, specifications, quantity, unit and notes; delivery or pickup; needed-by; bulk
+  flag; photos / BOQ via Stage 4 attachments. Cart "Get quotes" for Shop & Buy items creates the same structured RFQ.
+- Sent automatically to **5–10 shops** — count from `rfq_invite_rules` (category / city / locality) or the `rfq.invite_count` setting (7).
+  Only approved shop types, within their service radius; **wholesalers / distributors first for bulk**; then nearest, then shops listing
+  that subcategory, then rating.
+- Shops quote **item by item**: brand / specs offered, availability, unit price, **discount %, GST %, MOQ, lead time**, delivery charge,
+  validity, **terms and exclusions** (stored in `quotation_items`).
+- Customer **compares side by side** (lowest complete quote, lowest total, most items, fastest) and **accepts one** — under a row lock
+  with a unique index: the request turns into an order with that shop, other quotes are closed and those shops are told.
+
+**Apps**
+- Customer: Shop & Buy (search, category chips, shops near you, products with price range and shop count), product page with offers,
+  shop profile, one-shop cart and checkout, order tracking (steps, code, payment / test-mode buttons, cancel, timeline), RFQ form,
+  side-by-side comparison with accept; Orders tab and Home show product orders; Explore / Search / Create a Request route here.
+- Partner: role-based tabs — shops get a **Shop** tab (orders with confirm / decline / ready / out for delivery / complete-with-code,
+  products & stock with one-tap stock status, Excel upload / download, add from catalogue, propose a product, locations and partner
+  types); the quote form has brand, discount, GST, MOQ, lead time, terms and exclusions; dashboard shows new orders.
+- Agent: request detail shows the linked order (agents can't pay, accept or cancel for the customer).
+- Admin: new **Marketplace** section — Orders (list, detail with frozen snapshot, payments, timeline, cancel), Shops & vendors (approve /
+  suspend partner types), Products & listings (review listings, approve proposed products, create / edit catalogue products);
+  Settings → **RFQ invite rules**; request detail links its order.
+
+### Database migrations (additive)
+- `V12__partner_roles_locations.sql` — `partner_roles`, `partner_locations` + backfill.
+- `V13__products_listings.sql` — `pg_trgm`, 9 marketplace categories, `brands`, `products`, `product_variants`, `vendor_listings`, search
+  indexes, starter catalogue, marketplace settings.
+- `V14__orders.sql` — `product_carts`, `product_cart_items`, `orders`, `order_items`, immutability triggers, `payments.order_id` and
+  purpose `ORDER`, order settings.
+- `V15__rfq_items.sql` — `request_items`, `quotation_items` (+ backfill from existing quotes), `quotations.terms / lead_time_days`,
+  `rfq_invite_rules`, RFQ settings.
+- Dev seed `V1003__dev_marketplace.sql` — Deccan Building Supplies (wholesaler), FreshMart Supermarket, Vijaya Electronics (pending), shop
+  locations, grocery products, 40 listings.
+
+> Production note: `CREATE EXTENSION pg_trgm` needs a database role allowed to create extensions (managed PostgreSQL services allow
+> `pg_trgm`).
+
+### API contracts (new)
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/marketplace/shops?lat&lng&localityId&categoryId&q` | public | Nearest first, within `marketplace.search_radius_km` |
+| GET | `/api/v1/marketplace/shops/{id}` | public | Profile, locations, categories |
+| GET | `/api/v1/marketplace/products?q&categoryId&subcategoryId&shopId&lat&lng&page&size` | public | Shop count, price range, nearest km |
+| GET | `/api/v1/marketplace/products/{id}?lat&lng` | public | Specs, variants, offers (cheapest / nearest) |
+| GET / DELETE | `/api/v1/customer/product-cart?addressId` | customer | Re-priced cart, pickup / delivery options |
+| POST | `/api/v1/customer/product-cart/items` | customer | `listing_id`, `quantity`, `replace_cart`; 409 `CART_VENDOR_MISMATCH` |
+| PUT | `/api/v1/customer/product-cart/items/{listingId}` | customer | Quantity (0 removes) |
+| POST | `/api/v1/customer/product-cart/accept-prices` | customer | After a price change |
+| POST | `/api/v1/customer/orders` | customer | Checkout, `Idempotency-Key`; 409 `PRICE_CHANGED` / `ITEM_UNAVAILABLE` |
+| GET | `/api/v1/customer/orders`, `/{id}` | customer | Own orders only |
+| POST | `/api/v1/customer/orders/{id}/pay`, `/cancel` | customer | Retry payment; cancel before the shop confirms |
+| POST | `/api/v1/customer/rfqs` | customer | Structured quotation request, `Idempotency-Key` |
+| GET | `/api/v1/customer/requests/{id}/compare` | customer (owner) | Side-by-side comparison |
+| POST | `/api/v1/customer/requests/{id}/quotations/{qid}/accept` | customer | For RFQs now returns `{order, payment}`; body adds `fulfilment` |
+| GET | `/api/v1/partner/shop`, `/partner/locations`, `/partner/listings`, `/partner/catalogue/products` | partner | Own data only |
+| POST / PUT | `/api/v1/partner/locations[/{id}]`, POST `/partner/listings`, `/partner/products`, `/partner/roles` | partner | |
+| GET / POST | `/api/v1/partner/listings/excel` | partner | Template download / upload |
+| GET | `/api/v1/partner/orders?group=NEW|ACTIVE|DONE`, `/{id}` | partner | Own orders; unpaid online orders hidden |
+| POST | `/api/v1/partner/orders/{id}/confirm|reject|ready|dispatch|complete` | partner | `complete` needs the customer's code |
+| POST | `/api/v1/partner/leads/{id}/item-quote` | partner | Adds per line `brand, specs, discount_percent, tax_percent, moq, lead_time_days`; quote `terms, exclusions, lead_time_days` |
+| GET / POST / PUT | `/api/v1/admin/marketplace/shops`, `/shops/{id}/roles/{role}`, `/products`, `/products/{id}`, `/products/{id}/review`, `/products/{id}/variants`, `/listings`, `/listings/{id}/review`, `/brands`, `/rfq-rules` | admin (changes: ADMIN) | |
+| GET / POST | `/api/v1/admin/orders`, `/{id}`, `/{id}/cancel` | admin | Cancel: ADMIN / SUPPORT |
+
+### Tests
+- `MarketplaceFlowTest` (5):
+  - **A** search with stemming and typos, price comparison and distance, one shop per cart, price change refused until accepted,
+    idempotent checkout, failed then retried online payment, shop confirm / dispatch / wrong code / right code, settlement (ledger + payout),
+    My Requests status, immutable snapshots; pay-at-pickup order with MOQ, bulk tier and customer cancellation.
+  - **B + C** RFQ to several shops, shops see brand / specs, item-wise quote with discount + GST + MOQ + lead time + terms
+    (total 8,034.90 checked to the paisa), comparison picks the complete lowest quote, accept one → order, second acceptance refused,
+    other quote rejected; bulk RFQ with an invite rule of 1 goes to the wholesaler only.
+  - **I** a new shop registers → can't list before approval → admin approves registration, KYC, category → listing waits for review →
+    visible after approval → suspended role hides it → proposed product live after admin approval.
+  - **M** other shops / customers get 404 on orders, leads and comparisons; partners can't call admin endpoints.
+- `DirectQuoteFlowTest` updated on purpose: an accepted shop quote for Shop & Buy items now creates an **order** (one shop) instead of a
+  service job.
+- **Full suite: 55 passed, 0 failed.** Typecheck passes (customer, partner, agent, admin); admin production build passes.
+- Live check on the dev backend: search "mcb" → 2 shops compared → one-shop cart → pay-at-pickup order → shop confirmed, ready, completed
+  with the code; bulk RFQ sent to 3 shops, wholesaler first.
+- Browser (phone size): Shop & Buy, product comparison, one-shop dialog, cart → order with pickup code; partner Shop tab (new order,
+  products & stock); admin Products & listings and Orders.
+
+### Rollback
+Switch the Shop & Buy vertical off in Admin → Settings (shops, products, carts and checkout disappear; data kept). Code: revert the
+Stage 5 commit — V12–V15 are additive; older code ignores the new tables and columns. RFQs created by the new flow keep working as
+ordinary requests.
+
+### Not in Stage 5 (by plan)
+BUZZER-arranged delivery (linked task, Stage 8); vendor subscriptions, featured listings and order commission statements (Stage 9);
+returns and disputes (Stage 9); real payment gateway (credentials pending).
 
 ---
 

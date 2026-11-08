@@ -15,6 +15,7 @@ import { CartScreen, WishlistScreen, WriteToAgentScreen } from './src/screens/Ca
 import { CartProvider } from './src/cart';
 import { OnboardingGate, SubscribeAgentScreen } from './src/screens/Onboarding';
 import { AssistanceScreen, CreateRequestScreen, ExploreScreen, OrdersScreen, UniversalSearchScreen } from './src/screens/Unified';
+import { CompareQuotesScreen, OrderDetailScreen, ProductCartScreen, ProductScreen, RfqCreateScreen, ShopProfileScreen, ShopScreen } from './src/screens/Shop';
 
 /** Unified BUZZER navigation: Home · Explore · My Requests · Orders · Account (notifications live in the header). */
 const TABS = [
@@ -71,6 +72,13 @@ export default function App() {
             CreateRequest: ({ params }) => <CreateRequestScreen params={params} />,
             Assistance: () => <AssistanceScreen />,
             Notifications: () => <NotificationsScreen />,
+            Shop: ({ params }) => <ShopScreen params={params ?? {}} />,
+            Product: ({ params }) => <ProductScreen params={params} />,
+            ShopProfile: ({ params }) => <ShopProfileScreen params={params} />,
+            ProductCart: () => <ProductCartScreen />,
+            OrderDetail: ({ params }) => <OrderDetailScreen params={params} />,
+            RfqCreate: ({ params }) => <RfqCreateScreen params={params ?? {}} />,
+            CompareQuotes: ({ params }) => <CompareQuotesScreen params={params} />,
           }}
         />
         </CartProvider>

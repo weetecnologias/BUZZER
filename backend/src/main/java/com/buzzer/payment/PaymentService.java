@@ -36,7 +36,7 @@ public class PaymentService {
                               String providerOrderId, boolean testMode, Map<String, Object> checkout, String failureReason) {}
 
     private record Payment(UUID id, String paymentNumber, UUID requestId, UUID quotationId, UUID payerUserId, BigDecimal amount,
-                           String status, String method, String provider, String providerOrderId, String providerPaymentId) {}
+                           String status, String method, String provider, String providerOrderId, String providerPaymentId, UUID orderId) {}
 
     private record Quote(UUID id, UUID requestId, UUID partnerId, String status, BigDecimal totalAmount, boolean payOnDeliveryAllowed,
                          boolean expired) {}
@@ -52,10 +52,16 @@ public class PaymentService {
     private final SettingsService settings;
     private final AuditService audit;
     private final Json json;
+    private final org.springframework.context.ApplicationEventPublisher events;
+
+    /** Published inside the webhook transaction when a marketplace order's online payment succeeds or fails. */
+    public record OrderPaymentEvent(UUID orderId, UUID paymentId, String paymentNumber, boolean succeeded, String failureReason) {}
 
     public PaymentService(JdbcClient jdbc, BusinessIds ids, PaymentProvider provider, RequestRepository requests,
                           AssignmentService assignments, LedgerService ledger, NotificationService notifications,
-                          OpsExceptionService ops, SettingsService settings, AuditService audit, Json json) {
+                          OpsExceptionService ops, SettingsService settings, AuditService audit, Json json,
+                          org.springframework.context.ApplicationEventPublisher events) {
+        this.events = events;
         this.jdbc = jdbc;
         this.ids = ids;
         this.provider = provider;
@@ -177,7 +183,7 @@ public class PaymentService {
         if (requestId != null) requests.lock(requestId);
         Payment p = jdbc.sql("""
                 SELECT id, payment_number, request_id, quotation_id, payer_user_id, amount, status, method, provider, provider_order_id,
-                       provider_payment_id FROM payments WHERE provider = :p AND provider_order_id = :o FOR UPDATE""")
+                       provider_payment_id, order_id FROM payments WHERE provider = :p AND provider_order_id = :o FOR UPDATE""")
                 .param("p", provider.name()).param("o", ev.providerOrderId()).query(Payment.class).optional().orElse(null);
         String result;
         if (p == null) {
@@ -211,6 +217,11 @@ public class PaymentService {
         issueReceipt(p);
         audit.record(p.payerUserId(), "SYSTEM", "PAYMENT_SUCCEEDED", "PAYMENT", p.id(), Map.of("amount", p.amount().toPlainString()));
 
+        if (p.orderId() != null) {
+            // Marketplace order: the order module moves it to PAID and tells the shop.
+            events.publishEvent(new OrderPaymentEvent(p.orderId(), p.id(), p.paymentNumber(), true, null));
+            return "OK_SUCCEEDED";
+        }
         if (p.requestId() != null) {
             RequestRepository.Row r = requests.lock(p.requestId());
             if (r.statusEnum() == RequestStatus.PAYMENT_PENDING) {
@@ -234,6 +245,10 @@ public class PaymentService {
                 .param("id", p.id()).update();
         notifications.notifyUser(p.payerUserId(), "Payment failed", "Your payment did not go through. Your request is safe - you can retry anytime.",
                 "PAYMENT", "PAYMENT", p.id());
+        if (p.orderId() != null) {
+            events.publishEvent(new OrderPaymentEvent(p.orderId(), p.id(), p.paymentNumber(), false,
+                    ev.failureReason() == null || ev.failureReason().isBlank() ? "Payment failed" : ev.failureReason()));
+        }
         return "OK_FAILED";
     }
 
@@ -245,7 +260,7 @@ public class PaymentService {
         }
         Payment p = jdbc.sql("""
                 SELECT id, payment_number, request_id, quotation_id, payer_user_id, amount, status, method, provider, provider_order_id,
-                       provider_payment_id FROM payments WHERE id = :id""").param("id", paymentId).query(Payment.class).optional()
+                       provider_payment_id, order_id FROM payments WHERE id = :id""").param("id", paymentId).query(Payment.class).optional()
                 .orElseThrow(() -> BusinessException.notFound("Payment"));
         if (!p.payerUserId().equals(customerUserId)) throw BusinessException.notFound("Payment");
         if (p.providerOrderId() == null) throw BusinessException.invalid("Payment has no gateway order");
@@ -259,7 +274,7 @@ public class PaymentService {
     public UUID requestRefund(UUID paymentId, BigDecimal amount, String reason, UUID by) {
         Payment p = jdbc.sql("""
                 SELECT id, payment_number, request_id, quotation_id, payer_user_id, amount, status, method, provider, provider_order_id,
-                       provider_payment_id FROM payments WHERE id = :id FOR UPDATE""").param("id", paymentId).query(Payment.class).single();
+                       provider_payment_id, order_id FROM payments WHERE id = :id FOR UPDATE""").param("id", paymentId).query(Payment.class).single();
         if (!List.of("SUCCEEDED", "PARTIALLY_REFUNDED").contains(p.status())) throw BusinessException.invalid("Only successful payments can be refunded");
         BigDecimal refunded = jdbc.sql("SELECT COALESCE(sum(amount),0) FROM refunds WHERE payment_id = :p AND status NOT IN ('REJECTED','FAILED')")
                 .param("p", paymentId).query(BigDecimal.class).single();
@@ -280,7 +295,7 @@ public class PaymentService {
         if (!"PENDING".equals(rf.status())) throw BusinessException.transition(rf.status(), "COMPLETED");
         Payment p = jdbc.sql("""
                 SELECT id, payment_number, request_id, quotation_id, payer_user_id, amount, status, method, provider, provider_order_id,
-                       provider_payment_id FROM payments WHERE id = :id FOR UPDATE""").param("id", rf.paymentId()).query(Payment.class).single();
+                       provider_payment_id, order_id FROM payments WHERE id = :id FOR UPDATE""").param("id", rf.paymentId()).query(Payment.class).single();
         provider.refund(p.providerPaymentId(), rf.amount());
         jdbc.sql("UPDATE refunds SET status = 'COMPLETED', approved_by = :a, updated_at = now() WHERE id = :id").param("a", adminUserId).param("id", refundId).update();
         BigDecimal refunded = jdbc.sql("SELECT COALESCE(sum(amount),0) FROM refunds WHERE payment_id = :p AND status = 'COMPLETED'")
@@ -292,9 +307,63 @@ public class PaymentService {
         audit.record(adminUserId, "FINANCE", "REFUND_APPROVED", "REFUND", refundId, Map.of("amount", rf.amount().toPlainString()));
         if (full && p.requestId() != null) {
             RequestRepository.Row r = requests.lock(p.requestId());
-            if (r.statusEnum() == RequestStatus.REFUND_PENDING) requests.transition(r, RequestStatus.REFUNDED, adminUserId, "FINANCE", "Refund completed");
+            if (r.isV1() && r.statusEnum() == RequestStatus.REFUND_PENDING) requests.transition(r, RequestStatus.REFUNDED, adminUserId, "FINANCE", "Refund completed");
         }
         notifications.notifyUser(p.payerUserId(), "Refund processed", "Rs " + rf.amount().toPlainString() + " has been refunded.", "PAYMENT", "REFUND", refundId);
+    }
+
+    // ----- Marketplace orders ----------------------------------------------------------------------------
+
+    /** Online payment for an order (server-created gateway order; only the verified webhook marks it paid). */
+    public PaymentView createOrderPayment(UUID orderId, UUID requestId, UUID payer, BigDecimal amount, String key) {
+        var existing = byIdempotencyKey(key);
+        if (existing != null) return existing;
+        UUID paymentId = insertPayment("ORDER", requestId, null, orderId, payer, amount, "ONLINE", provider.name(), "CREATED", key, provider.testMode());
+        String number = jdbc.sql("SELECT payment_number FROM payments WHERE id = :id").param("id", paymentId).query(String.class).single();
+        try {
+            PaymentProvider.CreatedOrder order = provider.createOrder(number, amount, "INR");
+            jdbc.sql("UPDATE payments SET provider_order_id = :o, status = 'PENDING', updated_at = now() WHERE id = :id")
+                    .param("o", order.providerOrderId()).param("id", paymentId).update();
+            return view(paymentId, order.checkout());
+        } catch (RuntimeException e) {
+            log.warn("Payment provider failed to create order for {}: {}", number, e.getMessage());
+            jdbc.sql("UPDATE payments SET status = 'FAILED', failure_reason = :f, updated_at = now() WHERE id = :id")
+                    .param("f", "Payment gateway unavailable").param("id", paymentId).update();
+            ops.raise("PAYMENT_GATEWAY_ERROR", "HIGH", "Payment gateway failed to create order", "PAYMENT", paymentId,
+                    "Check gateway health", "gateway-error:" + provider.name(), Map.of("error", String.valueOf(e.getMessage())));
+            return view(paymentId, null);
+        }
+    }
+
+    /** Pay at pickup / on delivery: the shop collects the amount when handing over the order. */
+    public PaymentView recordCollectOnDelivery(UUID orderId, UUID requestId, UUID payer, BigDecimal amount, String key) {
+        var existing = byIdempotencyKey(key);
+        if (existing != null) return existing;
+        return view(insertPayment("ORDER", requestId, null, orderId, payer, amount, "PAY_ON_DELIVERY", "CASH", "COLLECT_ON_DELIVERY", key, false), null);
+    }
+
+    /** The shop handed over the order and collected the cash. */
+    public void markCollected(UUID orderId) {
+        jdbc.sql("UPDATE payments SET status = 'SUCCEEDED', updated_at = now() WHERE order_id = :o AND status = 'COLLECT_ON_DELIVERY'")
+                .param("o", orderId).update();
+    }
+
+    /** Closes open payment attempts; when the order was already paid online, opens a refund (PENDING, approved by finance). */
+    public UUID closeOrderPayments(UUID orderId, String reason, UUID by) {
+        jdbc.sql("""
+                UPDATE payments SET status = 'FAILED', failure_reason = :r, updated_at = now()
+                WHERE order_id = :o AND status IN ('CREATED','PENDING','COLLECT_ON_DELIVERY')""")
+                .param("r", reason).param("o", orderId).update();
+        record Paid(UUID id, BigDecimal amount) {}
+        Paid paid = jdbc.sql("SELECT id, amount FROM payments WHERE order_id = :o AND status = 'SUCCEEDED' ORDER BY created_at DESC LIMIT 1")
+                .param("o", orderId).query(Paid.class).optional().orElse(null);
+        return paid == null ? null : requestRefund(paid.id(), paid.amount(), reason, by);
+    }
+
+    public List<Map<String, Object>> forOrder(UUID orderId) {
+        return jdbc.sql("""
+                SELECT id, payment_number, method, provider, amount, status, failure_reason, test_mode, created_at
+                FROM payments WHERE order_id = :o ORDER BY created_at DESC""").param("o", orderId).query().listOfRows();
     }
 
     public List<Map<String, Object>> forRequest(UUID requestId) {
@@ -327,6 +396,17 @@ public class PaymentService {
                 .param("n", ids.next(BusinessIds.Kind.PAYMENT)).param("r", requestId).param("q", quotationId).param("u", payer)
                 .param("a", amount).param("m", method).param("prov", providerName).param("o", orderId).param("s", status)
                 .param("k", key).param("t", testMode).query(UUID.class).single();
+    }
+
+    private UUID insertPayment(String purpose, UUID requestId, UUID quotationId, UUID orderId, UUID payer, BigDecimal amount, String method,
+                               String providerName, String status, String key, boolean testMode) {
+        return jdbc.sql("""
+                INSERT INTO payments(payment_number, purpose, request_id, quotation_id, order_id, payer_user_id, amount, method, provider,
+                  status, idempotency_key, test_mode)
+                VALUES (:n, :purpose, :r, :q, :ord, :u, :a, :m, :prov, :s, :k, :t) RETURNING id""")
+                .param("n", ids.next(BusinessIds.Kind.PAYMENT)).param("purpose", purpose).param("r", requestId).param("q", quotationId)
+                .param("ord", orderId).param("u", payer).param("a", amount).param("m", method).param("prov", providerName)
+                .param("s", status).param("k", key).param("t", testMode).query(UUID.class).single();
     }
 
     private PaymentView byIdempotencyKey(String key) {

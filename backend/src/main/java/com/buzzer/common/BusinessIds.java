@@ -21,7 +21,8 @@ public class BusinessIds {
         INVOICE("BIL", "seq_invoice_number"),
         PAYMENT("PAY", "seq_payment_number"),
         REFUND("RFD", "seq_refund_number"),
-        PAYOUT("PYO", "seq_payout_number");
+        PAYOUT("PYO", "seq_payout_number"),
+        ORDER("ORD", "seq_order_number");
 
         final String prefix;
         final String sequence;

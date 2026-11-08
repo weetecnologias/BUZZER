@@ -46,6 +46,7 @@ export function DashboardScreen({ onOpenTab }: { onOpenTab: (t: string) => void 
               {[
                 ['New leads', d.counts.new_leads, 'leads'],
                 ['Quotes sent', d.counts.quotes_pending, 'leads'],
+                ...(d.counts.is_shop ? [['New orders', d.counts.new_orders, 'shop'], ['Orders in progress', d.counts.active_orders, 'shop']] : []),
                 ['To confirm', d.counts.awaiting_confirmation, 'jobs'],
                 ['In progress', d.counts.in_progress, 'jobs'],
                 ['Completed', d.counts.completed, 'jobs'],

@@ -21,7 +21,10 @@ import java.util.UUID;
 @Service
 public class PartnerService {
     public record Registration(String partnerType, String displayName, String businessName, String email, UUID cityId, String address,
-                               List<UUID> subcategoryIds, List<UUID> serviceItemIds, List<UUID> localityIds, UUID termsVersionId) {}
+                               List<UUID> subcategoryIds, List<UUID> serviceItemIds, List<UUID> localityIds, UUID termsVersionId,
+                               List<String> roles) {}
+
+    private static final java.util.Set<String> ROLES = java.util.Set.of("RETAIL_SHOP", "WHOLESALER", "DISTRIBUTOR", "SERVICE_PROVIDER", "TASK_PARTNER");
 
     private final JdbcClient jdbc;
     private final UserRepository users;
@@ -80,6 +83,29 @@ public class PartnerService {
                 if (n == 0) throw BusinessException.invalid("Service area must be in the selected city");
             }
         }
+        // Partner types: as chosen, plus whatever the requested categories imply (shop / service / task). All need admin approval.
+        if (in.roles() != null) {
+            for (String role : in.roles().stream().filter(java.util.Objects::nonNull).map(String::toUpperCase).distinct().toList()) {
+                if (!ROLES.contains(role)) throw BusinessException.invalid("Unknown partner type " + role);
+                jdbc.sql("INSERT INTO partner_roles(partner_id, role) VALUES (:p, :r) ON CONFLICT DO NOTHING").param("p", partnerId).param("r", role).update();
+            }
+        }
+        jdbc.sql("""
+                INSERT INTO partner_roles(partner_id, role)
+                SELECT DISTINCT pc.partner_id, CASE c.vertical WHEN 'MARKETPLACE' THEN 'RETAIL_SHOP' WHEN 'TASKS' THEN 'TASK_PARTNER' ELSE 'SERVICE_PROVIDER' END
+                FROM partner_capabilities pc JOIN subcategories s ON s.id = pc.subcategory_id JOIN categories c ON c.id = s.category_id
+                WHERE pc.partner_id = :p
+                  AND NOT (c.vertical = 'MARKETPLACE' AND EXISTS (SELECT 1 FROM partner_roles r WHERE r.partner_id = :p AND r.role IN ('WHOLESALER','DISTRIBUTOR')))
+                ON CONFLICT DO NOTHING""").param("p", partnerId).update();
+        // First location: the registered address, at the first service area (or the city centre).
+        jdbc.sql("""
+                INSERT INTO partner_locations(partner_id, name, address, city_id, locality_id, latitude, longitude, service_radius_km, phone, is_primary)
+                SELECT p.id, COALESCE(p.business_name, p.display_name), p.address, p.city_id, l.id, COALESCE(l.latitude, ci.latitude),
+                       COALESCE(l.longitude, ci.longitude), 10, p.contact_phone, TRUE
+                FROM partners p JOIN cities ci ON ci.id = p.city_id
+                LEFT JOIN LATERAL (SELECT lo.id, lo.latitude, lo.longitude FROM partner_service_areas sa JOIN localities lo ON lo.id = sa.locality_id
+                                   WHERE sa.partner_id = p.id ORDER BY lo.name LIMIT 1) l ON TRUE
+                WHERE p.id = :p""").param("p", partnerId).update();
         jdbc.sql("""
                 INSERT INTO terms_acceptances(user_id, terms_version_id, ip_address, user_agent) VALUES (:u, :t, :ip, :ua)
                 ON CONFLICT DO NOTHING""").param("u", userId).param("t", in.termsVersionId()).param("ip", ip)
@@ -94,6 +120,13 @@ public class PartnerService {
     public UUID requestCapability(UUID partnerId, UUID subcategoryId, UUID serviceItemId) {
         Integer ok = jdbc.sql("SELECT count(*) FROM subcategories WHERE id = :s AND active").param("s", subcategoryId).query(Integer.class).single();
         if (ok == 0) throw BusinessException.invalid("Unknown subcategory");
+        // Selling products needs a shop-type partner role (requested here if the partner has none yet).
+        jdbc.sql("""
+                INSERT INTO partner_roles(partner_id, role)
+                SELECT :p, 'RETAIL_SHOP' FROM subcategories s JOIN categories c ON c.id = s.category_id
+                WHERE s.id = :s AND c.vertical = 'MARKETPLACE'
+                  AND NOT EXISTS (SELECT 1 FROM partner_roles r WHERE r.partner_id = :p AND r.role IN ('RETAIL_SHOP','WHOLESALER','DISTRIBUTOR'))
+                ON CONFLICT DO NOTHING""").param("p", partnerId).param("s", subcategoryId).update();
         return jdbc.sql("""
                 INSERT INTO partner_capabilities(partner_id, subcategory_id, service_item_id) VALUES (:p, :s, :i)
                 ON CONFLICT (partner_id, subcategory_id, COALESCE(service_item_id, '00000000-0000-0000-0000-000000000000'::uuid))
@@ -120,7 +153,7 @@ public class PartnerService {
                 SELECT p.id, p.partner_type, p.display_name, p.business_name, p.contact_phone, p.email, p.city_id, c.name AS city_name,
                        p.address, p.registration_status, p.kyc_status, p.availability, p.rating_avg, p.rating_count, p.review_note, p.created_at
                 FROM partners p JOIN cities c ON c.id = p.city_id WHERE p.id = :p""").param("p", partnerId).query().singleRow();
-        return new java.util.LinkedHashMap<>(Map.of(
+        Map<String, Object> out = new java.util.LinkedHashMap<>(Map.of(
                 "partner", p,
                 "capabilities", capabilities(partnerId),
                 "service_areas", jdbc.sql("""
@@ -129,6 +162,13 @@ public class PartnerService {
                 "kyc_documents", jdbc.sql("""
                         SELECT id, doc_type, doc_number_masked, status, created_at FROM partner_kyc_documents WHERE partner_id = :p ORDER BY created_at DESC""")
                         .param("p", partnerId).query().listOfRows()));
+        out.put("roles", jdbc.sql("SELECT role, status, review_note FROM partner_roles WHERE partner_id = :p ORDER BY role")
+                .param("p", partnerId).query().listOfRows());
+        out.put("locations", jdbc.sql("""
+                SELECT pl.id, pl.name, pl.address, l.name AS locality_name, pl.service_radius_km, pl.pickup_enabled, pl.delivery_enabled, pl.is_primary, pl.active
+                FROM partner_locations pl LEFT JOIN localities l ON l.id = pl.locality_id WHERE pl.partner_id = :p ORDER BY pl.is_primary DESC, pl.name""")
+                .param("p", partnerId).query().listOfRows());
+        return out;
     }
 
     public List<Map<String, Object>> capabilities(UUID partnerId) {
@@ -193,6 +233,11 @@ public class PartnerService {
         int n = jdbc.sql("UPDATE partners SET registration_status = :d, review_note = :n, updated_at = now() WHERE id = :p")
                 .param("d", decision).param("n", note).param("p", partnerId).update();
         if (n == 0) throw BusinessException.notFound("Partner");
+        // Approving the registration approves the partner types it asked for (admins can still suspend a type on its own).
+        if ("APPROVED".equals(decision)) {
+            jdbc.sql("UPDATE partner_roles SET status = 'APPROVED', reviewed_by = :a, reviewed_at = now() WHERE partner_id = :p AND status = 'REQUESTED'")
+                    .param("a", adminUserId).param("p", partnerId).update();
+        }
         audit.record(adminUserId, "ADMIN", "PARTNER_REGISTRATION_" + decision, "PARTNER", partnerId, Map.of("note", note == null ? "" : note));
         notifyPartner(partnerId, "Registration " + decision.toLowerCase(), note == null ? "Your partner registration was reviewed." : note);
     }

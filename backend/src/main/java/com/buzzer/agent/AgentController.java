@@ -250,6 +250,8 @@ public class AgentController {
         d.put("invitations", quotations.invitations(id));
         d.put("payments", payments.forRequest(id));
         d.put("attachments", attachments.list(id, false));
+        d.put("order", jdbc.sql("SELECT o.id, o.order_number, o.status, o.total_amount, o.fulfilment, o.payment_method, p.display_name AS shop_name FROM orders o JOIN partners p ON p.id = o.partner_id WHERE o.request_id = :r")
+                .param("r", id).query().listOfRows().stream().findFirst().orElse(null));
         d.put("assignments", jdbc.sql("""
                 SELECT a.id, a.assignment_number, a.status, a.cancel_reason, a.cancelled_by, a.created_at, p.display_name AS partner_name
                 FROM assignments a JOIN partners p ON p.id = a.partner_id WHERE a.request_id = :r ORDER BY a.created_at""")

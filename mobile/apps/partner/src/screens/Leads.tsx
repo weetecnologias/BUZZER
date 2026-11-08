@@ -75,7 +75,9 @@ export function LeadDetailScreen({ params }: { params: { lead: Lead } }) {
 
 // ----- Item-by-item quote (cart requests, e.g. hardware shops) ---------------------------------------------
 
-type LineDraft = { available: boolean; price: string; note: string };
+/** Price per unit before discount and GST. RFQ fields (brand, discount, GST, MOQ, lead time) are optional. */
+type LineDraft = { available: boolean; price: string; note: string; brand?: string; disc?: string; tax?: string; moq?: string; lead?: string };
+const num = (s?: string) => (s && Number(s) >= 0 ? Number(s) : 0);
 const ETA = [['2H', 'Within 2 hours'], ['TODAY', 'Today'], ['TOMORROW', 'Tomorrow']] as const;
 
 function etaDate(k: string): string | null {
@@ -95,6 +97,9 @@ function ItemQuoteScreen({ lead }: { lead: Lead }) {
   const [eta, setEta] = useState<string>('TODAY');
   const [note, setNote] = useState('');
   const [pod, setPod] = useState(true);
+  const [terms, setTerms] = useState('');
+  const [exclusions, setExclusions] = useState('');
+  const [leadDays, setLeadDays] = useState('');
   const [done, setDone] = useState<string | null>(null);
   const [declineOpen, setDeclineOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -110,13 +115,20 @@ function ItemQuoteScreen({ lead }: { lead: Lead }) {
     (d.line_items ?? []).forEach((x: any) => {
       const p = prev[x.key];
       const price = p?.unit_price ?? x.suggested_price;
-      next[x.key] = { available: p ? !!p.available : true, price: price == null ? '' : String(Number(price)), note: p?.note ?? '' };
+      next[x.key] = {
+        available: p ? !!p.available : true, price: price == null ? '' : String(Number(price)), note: p?.note ?? '',
+        brand: p?.brand ?? x.brand_preference ?? '', disc: p?.discount_percent ? String(Number(p.discount_percent)) : '',
+        tax: p?.tax_rate ? String(Number(p.tax_rate)) : '', moq: p?.moq ? String(p.moq) : '', lead: p?.lead_time_days != null ? String(p.lead_time_days) : '',
+      };
     });
     setDraft(next);
     if (mine) {
       setDelivery(Number(mine.delivery_fee) ? String(Number(mine.delivery_fee)) : '');
       setNote(mine.partner_note ?? '');
       setPod(!!mine.pay_on_delivery_allowed);
+      setTerms(mine.terms ?? '');
+      setExclusions(mine.exclusions ?? '');
+      setLeadDays(mine.lead_time_days != null ? String(mine.lead_time_days) : '');
     }
   }, [d]);
 
@@ -130,7 +142,11 @@ function ItemQuoteScreen({ lead }: { lead: Lead }) {
       available++;
       const p = Number(v.price);
       if (!v.price || !(p > 0)) missingPrice = true;
-      else subtotal += p * x.quantity;
+      else {
+        const gross = p * x.quantity;
+        const net = gross - (gross * num(v.disc)) / 100;
+        subtotal += net + (net * num(v.tax)) / 100;
+      }
     });
     const del = Number(delivery) || 0;
     return { subtotal, available, missingPrice, total: subtotal + del };
@@ -143,8 +159,11 @@ function ItemQuoteScreen({ lead }: { lead: Lead }) {
       lines: (d.line_items ?? []).map((x: any) => ({
         key: x.key, available: draft[x.key]?.available ?? false,
         unit_price: draft[x.key]?.available ? Number(draft[x.key].price) : null, note: draft[x.key]?.note || null,
+        brand: draft[x.key]?.brand || null, discount_percent: num(draft[x.key]?.disc) || null, tax_percent: num(draft[x.key]?.tax) || null,
+        moq: draft[x.key]?.moq ? Number(draft[x.key].moq) : null, lead_time_days: draft[x.key]?.lead ? Number(draft[x.key].lead) : null,
       })),
       delivery_fee: Number(delivery) || 0, estimated_arrival: etaDate(eta), partner_note: note || null, pay_on_delivery_allowed: pod,
+      terms: terms.trim() || null, exclusions: exclusions.trim() || null, lead_time_days: leadDays ? Number(leadDays) : null,
     }));
     if (r) {
       setDone(r.status === 'SHARED'
@@ -182,6 +201,13 @@ function ItemQuoteScreen({ lead }: { lead: Lead }) {
           <KeyValue k="Area" v={d.locality_name ?? '—'} />
           <KeyValue k="Needed by" v={d.preferred_start ? dateTime(d.preferred_start) : 'Flexible'} />
           {d.description?.includes('Note:') ? <Text style={{ color: colors.text, marginTop: 4 }}>📝 {d.description.split('Note:')[1].trim()}</Text> : null}
+          {d.rfq ? (
+            <Row style={{ flexWrap: 'wrap', marginTop: 4 }}>
+              <Badge label={d.rfq.fulfilment === 'PICKUP' ? 'Customer picks up' : 'Deliver to customer'} tone="info" />
+              {d.rfq.bulk ? <Badge label="Bulk / wholesale" tone="warning" /> : null}
+              {d.rfq.needed_by ? <Badge label={`Needed by ${dateTime(d.rfq.needed_by)}`} tone="neutral" /> : null}
+            </Row>
+          ) : null}
           <Text style={{ color: colors.textSecondary, fontSize: font.xs, marginTop: 6 }}>Mark each item available or not and set your price. Prices from your approved price list are pre-filled.</Text>
         </Card>
         {(d.attachments ?? []).length ? (
@@ -193,13 +219,17 @@ function ItemQuoteScreen({ lead }: { lead: Lead }) {
 
         {(d.line_items ?? []).map((x: any) => {
           const v = draft[x.key] ?? { available: true, price: '', note: '' };
-          const lineTotal = v.available && Number(v.price) > 0 ? Number(v.price) * x.quantity : null;
+          const gross = v.available && Number(v.price) > 0 ? Number(v.price) * x.quantity : null;
+          const net = gross == null ? null : gross - (gross * num(v.disc)) / 100;
+          const lineTotal = net == null ? null : net + (net * num(v.tax)) / 100;
           return (
             <Card key={x.key} style={!v.available ? { opacity: 0.75 } : undefined}>
               <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontWeight: '800', color: colors.text }}>{x.quantity} × {x.name}</Text>
-                  {x.custom ? <Badge label="Extra item — not on menu" tone="info" /> : null}
+                  {x.custom && d.request_type !== 'PRODUCT_RFQ' ? <Badge label="Extra item — not on menu" tone="info" /> : null}
+                  {x.brand_preference ? <Text style={{ color: colors.text, fontSize: font.xs }}>Preferred brand: {x.brand_preference}</Text> : null}
+                  {x.specs ? <Text style={{ color: colors.text, fontSize: font.xs }}>Specs: {x.specs}</Text> : null}
                   {x.customer_note ? <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>Customer: {x.customer_note}</Text> : null}
                   {x.listed_price != null ? <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>BUZZER listed {money(x.listed_price)}{x.unit ? ` ${x.unit}` : ''}{x.my_price != null ? ` • your price ${money(x.my_price)}` : ''}</Text> : null}
                 </View>
@@ -220,7 +250,27 @@ function ItemQuoteScreen({ lead }: { lead: Lead }) {
                     placeholder="Price per unit" placeholderTextColor={colors.textSecondary} style={styles.input} accessibilityLabel={`Price for ${x.name}`} />
                 </Row>
               ) : null}
-              <TextInput value={v.note} onChangeText={(t) => set(x.key, { note: t })} placeholder={v.available ? 'Brand / note (optional)' : 'Alternative or reason (optional)'}
+              {v.available ? (
+                <>
+                  <Row style={{ marginTop: 6, gap: 6 }}>
+                    <TextInput value={v.brand} onChangeText={(t) => set(x.key, { brand: t })} placeholder="Brand offered" placeholderTextColor={colors.textSecondary}
+                      style={[styles.input, { fontSize: font.sm }]} accessibilityLabel={`Brand for ${x.name}`} />
+                    <TextInput value={v.disc} onChangeText={(t) => set(x.key, { disc: t.replace(/[^0-9.]/g, '') })} placeholder="Disc %" keyboardType="decimal-pad"
+                      placeholderTextColor={colors.textSecondary} style={[styles.input, { fontSize: font.sm, maxWidth: 80 }]} accessibilityLabel={`Discount for ${x.name}`} />
+                    <TextInput value={v.tax} onChangeText={(t) => set(x.key, { tax: t.replace(/[^0-9.]/g, '') })} placeholder="GST %" keyboardType="decimal-pad"
+                      placeholderTextColor={colors.textSecondary} style={[styles.input, { fontSize: font.sm, maxWidth: 80 }]} accessibilityLabel={`GST for ${x.name}`} />
+                  </Row>
+                  {d.request_type === 'PRODUCT_RFQ' ? (
+                    <Row style={{ marginTop: 6, gap: 6 }}>
+                      <TextInput value={v.moq} onChangeText={(t) => set(x.key, { moq: t.replace(/[^0-9]/g, '') })} placeholder="Min. order qty" keyboardType="number-pad"
+                        placeholderTextColor={colors.textSecondary} style={[styles.input, { fontSize: font.sm }]} accessibilityLabel={`Minimum order for ${x.name}`} />
+                      <TextInput value={v.lead} onChangeText={(t) => set(x.key, { lead: t.replace(/[^0-9]/g, '') })} placeholder="Lead time (days)" keyboardType="number-pad"
+                        placeholderTextColor={colors.textSecondary} style={[styles.input, { fontSize: font.sm }]} accessibilityLabel={`Lead time for ${x.name}`} />
+                    </Row>
+                  ) : null}
+                </>
+              ) : null}
+              <TextInput value={v.note} onChangeText={(t) => set(x.key, { note: t })} placeholder={v.available ? 'Specs offered / note (optional)' : 'Alternative or reason (optional)'}
                 placeholderTextColor={colors.textSecondary} style={[styles.input, { marginTop: 6, fontSize: font.sm }]} />
             </Card>
           );
@@ -235,8 +285,15 @@ function ItemQuoteScreen({ lead }: { lead: Lead }) {
             <TextField label="Delivery charge ₹ (0 for free)" keyboardType="numeric" value={delivery} onChangeText={(t) => setDelivery(t.replace(/[^0-9.]/g, ''))} />
             <TextField label="Note for the customer (optional)" value={note} onChangeText={setNote} placeholder="e.g. All branded items, GST bill provided" />
             <Toggle label="Allow pay on delivery" value={pod} onChange={setPod} />
+            {d.request_type === 'PRODUCT_RFQ' ? (
+              <>
+                <TextField label="Overall lead time (days, optional)" keyboardType="number-pad" value={leadDays} onChangeText={(t) => setLeadDays(t.replace(/[^0-9]/g, ''))} />
+                <TextField label="Terms (optional)" value={terms} onChangeText={setTerms} placeholder="e.g. GST invoice, 50% advance for bulk" maxLength={1000} />
+                <TextField label="Exclusions (optional)" value={exclusions} onChangeText={setExclusions} placeholder="e.g. Unloading not included" maxLength={1000} />
+              </>
+            ) : null}
             <Row style={{ justifyContent: 'space-between' }}>
-              <Text style={{ color: colors.textSecondary }}>Items {money(totals.subtotal)} + delivery {money(Number(delivery) || 0)}</Text>
+              <Text style={{ color: colors.textSecondary }}>Items {money(totals.subtotal)} (after discount, incl. GST) + delivery {money(Number(delivery) || 0)}</Text>
             </Row>
           </Card>
         ) : <Notice tone="info" message={`This lead is ${lead.status.toLowerCase()}.`} />}

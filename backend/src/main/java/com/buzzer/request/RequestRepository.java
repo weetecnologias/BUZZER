@@ -12,15 +12,26 @@ import java.util.UUID;
 @Repository
 public class RequestRepository {
     public record Row(UUID id, String requestNumber, UUID customerUserId, String status, UUID agentId, UUID escalatedToAgentId,
-                      UUID categoryId, UUID subcategoryId, UUID serviceItemId, UUID cityId, UUID localityId, String priority) {
+                      UUID categoryId, UUID subcategoryId, UUID serviceItemId, UUID cityId, UUID localityId, String priority,
+                      String lifecycle) {
+        /** Status in the service-request lifecycle. Orders (lifecycle ORDER) are driven by the order module instead. */
         public RequestStatus statusEnum() {
+            if (!isV1()) {
+                throw new BusinessException(com.buzzer.common.ErrorCode.INVALID_STATE_TRANSITION,
+                        "This request is now an order - use the order actions instead", Map.of("lifecycle", String.valueOf(lifecycle)));
+            }
             return RequestStatus.valueOf(status);
+        }
+
+        /** True for requests driven by the original service-request lifecycle (RequestStatus). */
+        public boolean isV1() {
+            return lifecycle == null || "REQUEST_V1".equals(lifecycle);
         }
     }
 
     private static final String COLS = """
             id, request_number, customer_user_id, status, agent_id, escalated_to_agent_id, category_id, subcategory_id,
-            service_item_id, city_id, locality_id, priority""";
+            service_item_id, city_id, locality_id, priority, lifecycle""";
 
     private final JdbcClient jdbc;
     private final AuditService audit;
@@ -68,6 +79,23 @@ public class RequestRepository {
         jdbc.sql("UPDATE service_requests SET updated_at = now() WHERE id = :r").param("r", requestId).update();
     }
 
+    /**
+     * Mirrors a domain status (an order status) on the hub row and writes the shared timeline. The order module validates
+     * its own transitions; this keeps "My Requests", agent and admin views in step. Caller holds the hub row lock.
+     */
+    public void mirror(UUID requestId, String from, String to, UUID actor, String role, String reason, boolean terminal) {
+        jdbc.sql("""
+                UPDATE service_requests SET status = :to, version = version + 1, updated_at = now(),
+                  resolved_at = CASE WHEN :terminal THEN now() ELSE resolved_at END
+                WHERE id = :id""").param("to", to).param("terminal", terminal).param("id", requestId).update();
+        jdbc.sql("""
+                INSERT INTO request_status_history(request_id, from_status, to_status, actor_user_id, actor_role, reason)
+                VALUES (:r, :f, :t, :a, :role, :reason)""")
+                .param("r", requestId).param("f", from).param("t", to).param("a", actor).param("role", role).param("reason", reason).update();
+        audit.record(actor, role, "REQUEST_STATUS_CHANGED", "REQUEST", requestId, Map.of("from", from == null ? "" : from, "to", to,
+                "reason", reason == null ? "" : reason));
+    }
+
     public List<Map<String, Object>> history(UUID requestId) {
         return jdbc.sql("""
                 SELECT h.from_status, h.to_status, h.actor_role, h.reason, h.created_at, u.full_name AS actor_name
@@ -96,10 +124,14 @@ public class RequestRepository {
                    r.request_type, r.vertical, r.lifecycle, r.parent_request_id,
                    CASE
                      WHEN r.status IN ('REQUEST_CREATED','AGENT_REVIEW','PARTNER_QUOTATION') THEN 'OPEN'
-                     WHEN r.status IN ('CUSTOMER_APPROVAL','PAYMENT_PENDING') THEN 'ACTION_NEEDED'
+                     WHEN r.status IN ('CUSTOMER_APPROVAL','PAYMENT_PENDING','READY_FOR_PICKUP') THEN 'ACTION_NEEDED'
                      WHEN r.status IN ('COMPLETED','SETTLEMENT_PENDING','SETTLED') THEN 'DONE'
-                     WHEN r.status IN ('CANCELLED','REJECTED','EXPIRED','REFUNDED','REFUND_PENDING') THEN 'CLOSED'
+                     WHEN r.status IN ('CANCELLED','REJECTED','EXPIRED','REFUNDED','REFUND_PENDING','VENDOR_REJECTED') THEN 'CLOSED'
                      ELSE 'IN_PROGRESS' END AS status_group,
+                   (SELECT o.id FROM orders o WHERE o.request_id = r.id) AS order_id,
+                   (SELECT o.order_number FROM orders o WHERE o.request_id = r.id) AS order_number,
+                   (SELECT o.total_amount FROM orders o WHERE o.request_id = r.id) AS order_total,
+                   (SELECT p.display_name FROM orders o JOIN partners p ON p.id = o.partner_id WHERE o.request_id = r.id) AS order_shop_name,
                    (SELECT count(*) FROM request_attachments ra WHERE ra.request_id = r.id AND ra.deleted_at IS NULL) AS attachment_count,
                    COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(r.line_items) = 'array' THEN r.line_items END), 0) AS item_count,
                    (SELECT max(h.created_at) FROM request_status_history h WHERE h.request_id = r.id) AS last_activity_at,

@@ -47,10 +47,24 @@ public class DirectQuoteService {
     private static final EnumSet<RequestStatus> QUOTABLE = EnumSet.of(RequestStatus.PARTNER_QUOTATION, RequestStatus.CUSTOMER_APPROVAL);
     private static final BigDecimal MAX_PRICE = new BigDecimal("10000000");
 
-    public record LineQuote(String key, Boolean available, BigDecimal unitPrice, String note) {}
+    /**
+     * One quoted line. Optional quotation-request fields: brand / specifications offered, discount %, tax (GST) %,
+     * minimum order quantity and lead time. Unit price is before discount and tax.
+     */
+    public record LineQuote(String key, Boolean available, BigDecimal unitPrice, String note, String brand, String specs,
+                            BigDecimal discountPercent, BigDecimal taxPercent, Integer moq, Integer leadTimeDays) {
+        public LineQuote(String key, Boolean available, BigDecimal unitPrice, String note) {
+            this(key, available, unitPrice, note, null, null, null, null, null, null);
+        }
+    }
 
     public record ItemQuoteInput(List<LineQuote> lines, BigDecimal deliveryFee, OffsetDateTime estimatedArrival, String partnerNote,
-                                 Boolean payOnDeliveryAllowed, Integer validHours) {}
+                                 Boolean payOnDeliveryAllowed, Integer validHours, String terms, String exclusions, Integer leadTimeDays) {
+        public ItemQuoteInput(List<LineQuote> lines, BigDecimal deliveryFee, OffsetDateTime estimatedArrival, String partnerNote,
+                              Boolean payOnDeliveryAllowed, Integer validHours) {
+            this(lines, deliveryFee, estimatedArrival, partnerNote, payOnDeliveryAllowed, validHours, null, null, null);
+        }
+    }
 
     private final JdbcClient jdbc;
     private final Json json;
@@ -63,10 +77,13 @@ public class DirectQuoteService {
     private final OpsExceptionService ops;
     private final AuditService audit;
     private final com.buzzer.request.AttachmentService attachments;
+    private final RfqVendorSelector rfqVendors;
 
     public DirectQuoteService(JdbcClient jdbc, Json json, BusinessIds ids, RequestRepository requests, PartnerEligibility eligibility,
                               AgentAllocationService allocation, NotificationService notifications, SettingsService settings,
-                              OpsExceptionService ops, AuditService audit, com.buzzer.request.AttachmentService attachments) {
+                              OpsExceptionService ops, AuditService audit, com.buzzer.request.AttachmentService attachments,
+                              RfqVendorSelector rfqVendors) {
+        this.rfqVendors = rfqVendors;
         this.attachments = attachments;
         this.jdbc = jdbc;
         this.json = json;
@@ -90,8 +107,12 @@ public class DirectQuoteService {
         List<String> itemIds = lineItems(requestId).stream().map(l -> l.path("service_item_id").asText(""))
                 .filter(s -> !s.isBlank()).toList();
         List<Map<String, Object>> eligible = new ArrayList<>(eligibility.eligibleFor(r));
+        boolean rfq = "PRODUCT_RFQ".equals(jdbc.sql("SELECT request_type FROM service_requests WHERE id = :r").param("r", requestId)
+                .query(String.class).single());
+        // Quotation requests go to shops only (shop role, inside their service radius), ranked for bulk / distance.
+        if (rfq) eligible = new ArrayList<>(rfqVendors.rank(r, eligible, rfqVendors.isBulk(requestId)));
         if (eligible.isEmpty()) {
-            handToAgent(r, "No verified partner is available for these items yet");
+            handToAgent(r, rfq ? "No verified shop near the customer can quote for these items yet" : "No verified partner is available for these items yet");
             return;
         }
         // Partners who already have approved prices for more of the requested items come first.
@@ -101,8 +122,8 @@ public class DirectQuoteService {
                     SELECT count(*) FROM partner_price_items WHERE partner_id = :p AND active AND status = 'APPROVED'
                       AND service_item_id::text IN (:items)""").param("p", p.get("id")).param("items", itemIds).query(Integer.class).single());
         }
-        eligible.sort(Comparator.comparing((Map<String, Object> p) -> -coverage.get(p.get("id")))); // stable: keeps rating/workload order
-        int max = Math.max(1, settings.getInt("direct_quote.max_partners", 5));
+        if (!rfq) eligible.sort(Comparator.comparing((Map<String, Object> p) -> -coverage.get(p.get("id")))); // stable: keeps rating/workload order
+        int max = rfq ? rfqVendors.inviteCount(r) : Math.max(1, settings.getInt("direct_quote.max_partners", 5));
         List<Map<String, Object>> chosen = eligible.stream().limit(max).toList();
         List<String> names = new ArrayList<>();
         for (Map<String, Object> p : chosen) {
@@ -138,11 +159,17 @@ public class DirectQuoteService {
         Map<String, BigDecimal> myPrices = new LinkedHashMap<>();
         jdbc.sql("SELECT service_item_id::text AS id, approved_price FROM partner_price_items WHERE partner_id = :p AND active AND status = 'APPROVED'")
                 .param("p", partnerId).query().listOfRows().forEach(m -> myPrices.put((String) m.get("id"), (BigDecimal) m.get("approved_price")));
+        Map<String, Map<String, Object>> requested = new LinkedHashMap<>();
+        jdbc.sql("SELECT line_key, brand_preference, specs, notes FROM request_items WHERE request_id = :r").param("r", requestId).query().listOfRows()
+                .forEach(ri -> requested.put((String) ri.get("line_key"), ri));
         List<Map<String, Object>> lines = new ArrayList<>();
         for (JsonNode l : lineItems(requestId)) {
             Map<String, Object> m = new LinkedHashMap<>();
             String itemId = l.path("service_item_id").asText("");
             m.put("key", key(l));
+            Map<String, Object> ri = requested.getOrDefault(key(l), Map.of());
+            m.put("brand_preference", ri.get("brand_preference"));
+            m.put("specs", ri.get("specs"));
             m.put("name", l.path("name").asText());
             m.put("quantity", l.path("quantity").asInt(1));
             m.put("unit", l.path("unit").isMissingNode() || l.path("unit").isNull() ? null : l.path("unit").asText());
@@ -155,9 +182,13 @@ public class DirectQuoteService {
         }
         Map<String, Object> out = new LinkedHashMap<>(lead);
         out.put("line_items", lines);
+        out.put("request_type", jdbc.sql("SELECT request_type FROM service_requests WHERE id = :r").param("r", requestId).query(String.class).single());
+        String answers = jdbc.sql("SELECT answers::text FROM service_requests WHERE id = :r").param("r", requestId).query(String.class).optional().orElse(null);
+        out.put("rfq", json.map(answers).get("rfq"));
         out.put("my_quote", jdbc.sql("""
                 SELECT q.id, q.quotation_number, q.status, q.total_amount, q.visit_fee AS delivery_fee, q.line_items::text AS line_items,
-                       q.revision_no, q.revision_note, q.partner_note, q.estimated_arrival, q.pay_on_delivery_allowed, q.created_at
+                       q.revision_no, q.revision_note, q.partner_note, q.estimated_arrival, q.pay_on_delivery_allowed, q.created_at,
+                       q.terms, q.exclusions, q.lead_time_days, q.tax_amount, q.discount_amount, q.valid_until
                 FROM quotations q WHERE q.invitation_id = :i AND q.status <> 'REVISED' ORDER BY q.created_at DESC LIMIT 1""")
                 .param("i", invitationId).query().listOfRows().stream().findFirst().map(q -> {
                     Map<String, Object> m = new LinkedHashMap<>(q);
@@ -165,7 +196,7 @@ public class DirectQuoteService {
                     return m;
                 }).orElse(null));
         out.put("attachments", attachments.list(requestId, true));
-        out.put("can_quote", QUOTABLE.contains(RequestStatus.valueOf((String) lead.get("request_status")))
+        out.put("can_quote", QUOTABLE.stream().anyMatch(s -> s.name().equals(lead.get("request_status")))
                 && List.of("INVITED", "QUOTED").contains((String) lead.get("invitation_status")));
         return out;
     }
@@ -192,6 +223,8 @@ public class DirectQuoteService {
 
         List<Map<String, Object>> lines = new ArrayList<>();
         BigDecimal subtotal = BigDecimal.ZERO;
+        BigDecimal discountTotal = BigDecimal.ZERO;
+        BigDecimal taxTotal = BigDecimal.ZERO;
         int available = 0;
         for (JsonNode l : requested) {
             String k = key(l);
@@ -207,15 +240,36 @@ public class DirectQuoteService {
             m.put("available", a.available());
             if (a.note() != null && a.note().length() > 200) throw BusinessException.invalid("Item notes must be 200 characters or less");
             m.put("note", a.note() == null || a.note().isBlank() ? null : a.note().trim());
+            if (a.brand() != null && a.brand().length() > 120) throw BusinessException.invalid("Brand must be 120 characters or less");
+            if (a.specs() != null && a.specs().length() > 500) throw BusinessException.invalid("Specifications must be 500 characters or less");
+            m.put("brand", a.brand() == null || a.brand().isBlank() ? null : a.brand().trim());
+            m.put("specs", a.specs() == null || a.specs().isBlank() ? null : a.specs().trim());
             if (a.available()) {
                 if (a.unitPrice() == null || a.unitPrice().signum() <= 0 || a.unitPrice().compareTo(MAX_PRICE) > 0) {
                     throw BusinessException.invalid("Enter a price for '" + l.path("name").asText() + "'");
                 }
+                BigDecimal discPct = a.discountPercent() == null ? BigDecimal.ZERO : a.discountPercent();
+                BigDecimal taxPct = a.taxPercent() == null ? BigDecimal.ZERO : a.taxPercent();
+                if (discPct.signum() < 0 || discPct.compareTo(BigDecimal.valueOf(100)) >= 0) throw BusinessException.invalid("Discount must be 0-99%");
+                if (taxPct.signum() < 0 || taxPct.compareTo(BigDecimal.valueOf(40)) > 0) throw BusinessException.invalid("Tax must be 0-40%");
+                if (a.moq() != null && (a.moq() < 1 || a.moq() > 1000000)) throw BusinessException.invalid("Minimum order quantity is invalid");
+                if (a.leadTimeDays() != null && (a.leadTimeDays() < 0 || a.leadTimeDays() > 180)) throw BusinessException.invalid("Lead time must be 0-180 days");
                 BigDecimal unit = a.unitPrice().setScale(2, RoundingMode.HALF_UP);
-                BigDecimal lineTotal = unit.multiply(BigDecimal.valueOf(qty)).setScale(2, RoundingMode.HALF_UP);
+                BigDecimal gross = unit.multiply(BigDecimal.valueOf(qty)).setScale(2, RoundingMode.HALF_UP);
+                BigDecimal discount = gross.multiply(discPct).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+                BigDecimal tax = gross.subtract(discount).multiply(taxPct).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+                BigDecimal lineTotal = gross.subtract(discount).add(tax).setScale(2, RoundingMode.HALF_UP);
                 m.put("unit_price", unit);
+                m.put("discount_percent", discPct);
+                m.put("discount_amount", discount);
+                m.put("tax_rate", taxPct);
+                m.put("tax_amount", tax);
+                m.put("moq", a.moq());
+                m.put("lead_time_days", a.leadTimeDays());
                 m.put("line_total", lineTotal);
                 subtotal = subtotal.add(lineTotal);
+                discountTotal = discountTotal.add(discount);
+                taxTotal = taxTotal.add(tax);
                 available++;
             } else {
                 m.put("unit_price", null);
@@ -227,6 +281,9 @@ public class DirectQuoteService {
         BigDecimal delivery = in.deliveryFee() == null ? BigDecimal.ZERO : in.deliveryFee().setScale(2, RoundingMode.HALF_UP);
         if (delivery.signum() < 0 || delivery.compareTo(MAX_PRICE) > 0) throw BusinessException.invalid("Delivery fee is invalid");
         if (in.partnerNote() != null && in.partnerNote().length() > 500) throw BusinessException.invalid("Note must be 500 characters or less");
+        if (in.terms() != null && in.terms().length() > 1000) throw BusinessException.invalid("Terms must be 1000 characters or less");
+        if (in.exclusions() != null && in.exclusions().length() > 1000) throw BusinessException.invalid("Exclusions must be 1000 characters or less");
+        if (in.leadTimeDays() != null && (in.leadTimeDays() < 0 || in.leadTimeDays() > 180)) throw BusinessException.invalid("Lead time must be 0-180 days");
         BigDecimal total = subtotal.add(delivery).setScale(2, RoundingMode.HALF_UP);
         int hours = in.validHours() == null ? settings.getInt("quotation.default_validity_hours", 48) : Math.min(Math.max(in.validHours(), 1), 168);
 
@@ -247,16 +304,33 @@ public class DirectQuoteService {
         String number = ids.next(BusinessIds.Kind.QUOTATION);
         UUID id = jdbc.sql("""
                 INSERT INTO quotations(quotation_number, request_id, invitation_id, partner_id, scope_of_work, labour_amount, materials_amount,
-                  visit_fee, total_amount, estimated_arrival, valid_until, pay_on_delivery_allowed, status, shared_at, line_items, revision_no, partner_note)
-                VALUES (:n, :r, :i, :p, :scope, 0, :sub, :del, :total, :eta, now() + make_interval(hours => :h), :pod, :st,
-                  CASE WHEN :auto THEN now() END, CAST(:lines AS jsonb), :rev, :note)
+                  visit_fee, tax_amount, discount_amount, total_amount, estimated_arrival, valid_until, pay_on_delivery_allowed, status, shared_at,
+                  line_items, revision_no, partner_note, terms, exclusions, lead_time_days)
+                VALUES (:n, :r, :i, :p, :scope, 0, :sub, :del, :tax, :disc, :total, :eta, now() + make_interval(hours => :h), :pod, :st,
+                  CASE WHEN :auto THEN now() END, CAST(:lines AS jsonb), :rev, :note, :terms, :excl, :lead)
                 RETURNING id""")
                 .param("n", number).param("r", r.id()).param("i", invitationId).param("p", partnerId).param("scope", scope)
-                .param("sub", subtotal.setScale(2, RoundingMode.HALF_UP)).param("del", delivery).param("total", total)
+                .param("sub", subtotal.subtract(taxTotal).setScale(2, RoundingMode.HALF_UP)).param("del", delivery)
+                .param("tax", taxTotal.setScale(2, RoundingMode.HALF_UP)).param("disc", discountTotal.setScale(2, RoundingMode.HALF_UP)).param("total", total)
                 .param("eta", in.estimatedArrival()).param("h", hours).param("pod", podBySvc && Boolean.TRUE.equals(in.payOnDeliveryAllowed()))
                 .param("st", automated ? "SHARED" : "SUBMITTED").param("auto", automated).param("lines", json.write(lines))
                 .param("rev", revision).param("note", in.partnerNote() == null || in.partnerNote().isBlank() ? null : in.partnerNote().trim())
+                .param("terms", in.terms() == null || in.terms().isBlank() ? null : in.terms().trim())
+                .param("excl", in.exclusions() == null || in.exclusions().isBlank() ? null : in.exclusions().trim()).param("lead", in.leadTimeDays())
                 .query(UUID.class).single();
+        // Structured copy of every line (used for comparison and for the order snapshot when this quote is accepted).
+        for (Map<String, Object> m : lines) {
+            jdbc.sql("""
+                    INSERT INTO quotation_items(quotation_id, request_item_id, line_key, name, brand, specs, quantity, unit, available, unit_price,
+                      discount_percent, discount_amount, tax_rate, tax_amount, line_total, moq, lead_time_days, note)
+                    VALUES (:q, (SELECT id FROM request_items WHERE request_id = :r AND line_key = :k), :k, :n, :b, :sp, :qty, :u, :av, :up,
+                      COALESCE(:dp, 0), COALESCE(:da, 0), COALESCE(:tr, 0), COALESCE(:ta, 0), :lt, :moq, :lead, :note)""")
+                    .param("q", id).param("r", r.id()).param("k", m.get("key")).param("n", m.get("name")).param("b", m.get("brand"))
+                    .param("sp", m.get("specs")).param("qty", m.get("quantity")).param("u", m.get("unit")).param("av", m.get("available"))
+                    .param("up", m.get("unit_price")).param("dp", m.get("discount_percent")).param("da", m.get("discount_amount"))
+                    .param("tr", m.get("tax_rate")).param("ta", m.get("tax_amount")).param("lt", m.get("line_total")).param("moq", m.get("moq"))
+                    .param("lead", m.get("lead_time_days")).param("note", m.get("note")).update();
+        }
         jdbc.sql("UPDATE partner_invitations SET status = 'QUOTED' WHERE id = :i").param("i", invitationId).update();
         String partnerName = jdbc.sql("SELECT display_name FROM partners WHERE id = :p").param("p", partnerId).query(String.class).single();
         audit.record(partnerUserId, "PARTNER", revision > 1 ? "QUOTATION_REVISED" : "QUOTATION_SUBMITTED", "QUOTATION", id,

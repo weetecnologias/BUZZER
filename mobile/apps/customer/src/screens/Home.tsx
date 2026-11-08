@@ -117,7 +117,8 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string, opts?: { ver
     verticals.reload();
   };
   const openCard = (key: string) => {
-    if (key === 'SHOP' || key === 'QUOTES') onOpenTab?.('explore', { vertical: 'MARKETPLACE' });
+    if (key === 'SHOP') nav.push('Shop', {});
+    else if (key === 'QUOTES') nav.push('RfqCreate', {});
     else if (key === 'SERVICES') onOpenTab?.('explore', { vertical: 'SERVICES' });
     else nav.push('Assistance');
   };
@@ -174,9 +175,9 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string, opts?: { ver
           <>
             <SectionTitle title="📦 Active orders" action="See all" onAction={() => onOpenTab?.('orders')} />
             {(home.data?.active_orders ?? []).map((r) => (
-              <Card key={r.id} onPress={() => nav.push('RequestDetail', { id: r.id })} accessibilityLabel={`Order ${r.request_number}`}>
+              <Card key={r.id} onPress={() => (r.order_id ? nav.push('OrderDetail', { id: r.order_id }) : nav.push('RequestDetail', { id: r.id }))} accessibilityLabel={`Order ${r.request_number}`}>
                 <Row style={{ justifyContent: 'space-between' }}>
-                  <Text style={{ fontWeight: '700', color: colors.text, flex: 1 }}>{r.service_name || r.subcategory_name || r.category_name}</Text>
+                  <Text style={{ fontWeight: '700', color: colors.text, flex: 1 }}>{r.order_shop_name ? `🛍️ ${r.order_shop_name}` : r.service_name || r.subcategory_name || r.category_name}</Text>
                   <StatusBadge status={r.status} />
                 </Row>
               </Card>
@@ -207,12 +208,12 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string, opts?: { ver
 
         {(shops.data ?? []).length ? (
           <>
-            <SectionTitle title="🏪 Shops on BUZZER" action="Shop" onAction={() => onOpenTab?.('explore', { vertical: 'MARKETPLACE' })} />
+            <SectionTitle title="🏪 Shops on BUZZER" action="Shop" onAction={() => nav.push('Shop', {})} />
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm, paddingVertical: 4, paddingRight: space.lg }}
               style={{ marginHorizontal: -space.lg, paddingLeft: space.lg }}>
               {(shops.data ?? []).map((sh) => (
                 <Pressable key={sh.id} accessibilityRole="button" accessibilityLabel={sh.display_name} style={styles.shop}
-                  onPress={() => nav.push('Category', { categoryId: sh.category_id, title: sh.display_name })}>
+                  onPress={() => nav.push('ShopProfile', { id: sh.id })}>
                   <Text style={{ fontSize: 28 }}>🏪</Text>
                   <Text style={{ fontWeight: '800', color: colors.text }} numberOfLines={1}>{sh.display_name}</Text>
                   <Text style={{ color: colors.textSecondary, fontSize: font.xs }} numberOfLines={2}>{sh.categories}</Text>

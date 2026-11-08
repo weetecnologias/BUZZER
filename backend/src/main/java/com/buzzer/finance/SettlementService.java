@@ -126,7 +126,7 @@ public class SettlementService {
         audit.record(financeUserId, "FINANCE", "PAYOUT_PAID", "PAYOUT", payoutId, Map.of("amount", p.amount().toPlainString(), "reference", bankReference));
         if (p.requestId() != null) {
             RequestRepository.Row r = requests.lock(p.requestId());
-            if (r.statusEnum() == RequestStatus.SETTLEMENT_PENDING) {
+            if (r.isV1() && r.statusEnum() == RequestStatus.SETTLEMENT_PENDING) {
                 requests.transition(r, RequestStatus.SETTLED, financeUserId, "FINANCE", "Partner payout completed");
             }
         }

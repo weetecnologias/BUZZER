@@ -146,6 +146,20 @@ class Client {
     return json.data as T;
   }
 
+  /** Authenticated file download (e.g. an Excel sheet) as a Blob. */
+  async download(path: string): Promise<Blob> {
+    const send = () => fetch(`${API_URL}${path}`, { headers: this.access ? { Authorization: `Bearer ${this.access}` } : {} });
+    let res: Response;
+    try {
+      res = await send();
+      if (res.status === 401 && (await this.refresh())) res = await send();
+    } catch {
+      throw new ApiError(0, 'NETWORK', 'Could not reach BUZZER. Check your connection and try again.');
+    }
+    if (!res.ok) throw new ApiError(res.status, 'ERROR', 'Download failed');
+    return res.blob();
+  }
+
   get<T>(path: string) {
     return this.request<T>('GET', path);
   }

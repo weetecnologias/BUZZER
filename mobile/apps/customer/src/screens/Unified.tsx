@@ -26,7 +26,7 @@ function CategoryGrid({ categories }: { categories: Category[] }) {
     <View style={styles.grid}>
       {categories.map((c) => (
         <Pressable key={c.id} accessibilityRole="button" accessibilityLabel={c.name} style={({ pressed }) => [styles.gridCard, pressed && { opacity: 0.85 }]}
-          onPress={() => nav.push('Category', { categoryId: c.id, title: c.name })}>
+          onPress={() => (c.vertical === 'MARKETPLACE' ? nav.push('Shop', { categoryId: c.id, title: c.name }) : nav.push('Category', { categoryId: c.id, title: c.name }))}>
           <ServiceImage uri={c.image_url} icon={c.icon} size={58} round />
           <Text style={styles.gridLabel} numberOfLines={2}>{c.name}</Text>
         </Pressable>
@@ -36,7 +36,7 @@ function CategoryGrid({ categories }: { categories: Category[] }) {
 }
 
 const VERTICAL_HINT: Record<string, string> = {
-  MARKETPLACE: 'Products from local shops. Add items (and anything not listed) to your cart, then buy or tap “Get quotes” — shops reply with item-wise prices.',
+  MARKETPLACE: 'Products from local shops: compare prices and buy from one shop, or send a quotation request — shops reply with item-wise prices.',
   SERVICES: 'Verified professionals for your home and life — fixed prices or quotes.',
   TASKS: 'Pickups, drops, collections and errands — tell us what to get done.',
   ASSISTANCE: 'Anything else? Your BUZZER agent handles it end to end.',
@@ -62,6 +62,12 @@ export function ExploreScreen({ vertical, onVertical }: { vertical?: string; onV
         {v.loading || cats.loading ? <Loading /> : cats.error ? <ErrorState message={cats.error} onRetry={cats.reload} /> : !(cats.data ?? []).length ? (
           <EmptyState title="Coming soon" message="Categories for this section are being set up." />
         ) : <CategoryGrid categories={cats.data ?? []} />}
+        {current?.code === 'MARKETPLACE' ? (
+          <Row>
+            <Button title="🛍️ Shop & Buy" style={{ flex: 1 }} onPress={() => nav.push('Shop', {})} />
+            <Button title="🧾 Request quotes" variant="secondary" style={{ flex: 1 }} onPress={() => nav.push('RfqCreate', {})} />
+          </Row>
+        ) : null}
         {current?.code === 'ASSISTANCE' || current?.code === 'TASKS' ? (
           <Button title={current.code === 'TASKS' ? '📝 Describe a task' : '✍️ Ask a BUZZER agent'} variant="secondary"
             onPress={() => nav.push('WriteToAgent', {})} />
@@ -80,6 +86,7 @@ type SearchResult = {
   categories: Category[];
   items: any[];
   shops: { id: string; display_name: string; business_name: string | null; rating_avg: number; rating_count: number; categories: string; category_id: string }[];
+  products?: { id: string; name: string; brand: string | null; min_price: number; shop_count: number; category_icon: string | null; image_url: string | null; subcategory_name: string }[];
 };
 
 const WORKFLOW_GLYPH: Record<string, string> = { SHOP: '🛍️', REQUEST_QUOTES: '🧾', BOOK_SERVICE: '🛠️', TASK: '🛵', ASSISTANCE: '🧑‍💼' };
@@ -98,6 +105,8 @@ export function UniversalSearchScreen({ params }: { params: { q?: string } }) {
   const follow = () => {
     if (!s) return;
     if (s.workflow === 'ASSISTANCE' || (s.workflow === 'TASK' && !s.category_id)) return nav.push('WriteToAgent', { prefill: debounced });
+    if (s.workflow === 'SHOP') return nav.push('Shop', { categoryId: s.category_id, q: debounced });
+    if (s.workflow === 'REQUEST_QUOTES') return nav.push('RfqCreate', { categoryId: s.category_id, prefill: debounced });
     if (s.category_id) return nav.push('Category', { categoryId: s.category_id, title: s.category_name ?? s.title, subcategoryId: s.subcategory_id });
     nav.push('Tabs', { tab: 'explore', vertical: s.vertical });
   };
@@ -140,6 +149,23 @@ export function UniversalSearchScreen({ params }: { params: { q?: string } }) {
                 </LinearGradient>
               </Pressable>
             ) : null}
+            {(r.data?.products ?? []).length ? (
+              <>
+                <Text style={styles.section}>From local shops</Text>
+                <Card>
+                  {(r.data?.products ?? []).map((p) => (
+                    <Pressable key={p.id} accessibilityRole="button" style={styles.row} onPress={() => nav.push('Product', { id: p.id })}>
+                      <ServiceImage uri={p.image_url} icon={p.category_icon} size={40} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '700', color: colors.text }}>{p.name}</Text>
+                        <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>{p.brand ? `${p.brand} · ` : ''}{p.shop_count} shop(s)</Text>
+                      </View>
+                      <Text style={{ color: colors.forest, fontWeight: '800' }}>from {money(p.min_price)}</Text>
+                    </Pressable>
+                  ))}
+                </Card>
+              </>
+            ) : null}
             {(r.data?.items ?? []).length ? (
               <>
                 <Text style={styles.section}>Products & services</Text>
@@ -162,7 +188,7 @@ export function UniversalSearchScreen({ params }: { params: { q?: string } }) {
               <>
                 <Text style={styles.section}>Shops</Text>
                 {(r.data?.shops ?? []).map((sh) => (
-                  <Card key={sh.id} onPress={() => nav.push('Category', { categoryId: sh.category_id, title: sh.categories })}>
+                  <Card key={sh.id} onPress={() => nav.push('ShopProfile', { id: sh.id })}>
                     <Row>
                       <Text style={{ fontSize: 26 }}>🏪</Text>
                       <View style={{ flex: 1 }}>
@@ -199,8 +225,10 @@ export function CreateRequestScreen({ params }: { params: { text?: string } }) {
   const nav = useNav();
   const v = useVerticals();
   const options = [
-    { show: v.has('MARKETPLACE'), glyph: '🧾', title: 'Get quotes from local shops', text: 'Make a list of items — shops reply with availability and price for each.',
-      go: () => nav.push('Tabs', { tab: 'explore', vertical: 'MARKETPLACE' }) },
+    { show: v.has('MARKETPLACE'), glyph: '🛍️', title: 'Buy from a local shop', text: 'Compare prices across nearby shops and order — pickup or delivery.',
+      go: () => nav.push('Shop', { q: params.text }) },
+    { show: v.has('MARKETPLACE'), glyph: '🧾', title: 'Get quotes from local shops', text: 'Make a list of items (brand, size, quantity) — 5-10 shops reply with item-wise prices.',
+      go: () => nav.push('RfqCreate', { prefill: params.text }) },
     { show: v.has('SERVICES'), glyph: '🛠️', title: 'Book a service', text: 'Plumber, electrician, AC, cleaning, painting and more.',
       go: () => nav.push('Tabs', { tab: 'explore', vertical: 'SERVICES' }) },
     { show: v.has('TASKS'), glyph: '🛵', title: 'Task or errand', text: 'Pick up documents or a parcel, collect from a shop, deliver to someone.',
@@ -289,19 +317,35 @@ export function OrdersScreen() {
   const nav = useNav();
   const [tab, setTab] = useState<'ACTIVE' | 'PAST'>('ACTIVE');
   const q = useQuery(() => api.get<any[]>('/api/v1/customer/requests?openOnly=false'));
-  useOnRefocus(q.refresh);
-  const rows = (q.data ?? []).filter((r) => (tab === 'ACTIVE' ? ORDER_STATES : DONE_STATES).includes(r.status));
+  const orders = useQuery(() => api.get<any[]>('/api/v1/customer/orders'));
+  useOnRefocus(() => { q.refresh(); orders.refresh(); });
+  // Service bookings (request lifecycle); product orders come from /customer/orders.
+  const rows = (q.data ?? []).filter((r) => r.lifecycle !== 'ORDER' && (tab === 'ACTIVE' ? ORDER_STATES : DONE_STATES).includes(r.status));
+  const productOrders = (orders.data ?? []).filter((o) => (tab === 'ACTIVE') === !['COMPLETED', 'CANCELLED', 'VENDOR_REJECTED'].includes(o.status));
   return (
     <View style={{ flex: 1 }}>
       <GradientHeader title="Orders" subtitle="Purchases, bookings and deliveries you've confirmed" />
-      <Screen refreshing={q.refreshing} onRefresh={q.refresh}>
+      <Screen refreshing={q.refreshing || orders.refreshing} onRefresh={() => { q.refresh(); orders.refresh(); }}>
         <Row>
           <Chip label="Active" selected={tab === 'ACTIVE'} onPress={() => setTab('ACTIVE')} />
           <Chip label="Past orders" selected={tab === 'PAST'} onPress={() => setTab('PAST')} />
         </Row>
-        {q.loading ? <Loading /> : q.error ? <ErrorState message={q.error} onRetry={q.reload} /> : rows.length === 0 ? (
+        {productOrders.map((o) => (
+          <Card key={o.id} onPress={() => nav.push('OrderDetail', { id: o.id })} accessibilityLabel={`Order ${o.order_number}`}>
+            <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '800', color: colors.text }}>🛍️ {o.shop_name}</Text>
+                <Text style={{ color: colors.textSecondary, fontSize: font.xs }} numberOfLines={1}>{o.summary}</Text>
+                <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>#{o.order_number} • {o.fulfilment === 'PICKUP' ? 'Pickup' : 'Delivery'} • {dateTime(o.updated_at ?? o.created_at)}</Text>
+              </View>
+              <StatusBadge status={o.status} />
+            </Row>
+            <Text style={{ color: colors.forest, fontWeight: '700', marginTop: 4 }}>{money(o.total_amount)}</Text>
+          </Card>
+        ))}
+        {q.loading || orders.loading ? <Loading /> : q.error ? <ErrorState message={q.error} onRetry={q.reload} /> : rows.length === 0 && productOrders.length === 0 ? (
           <EmptyState title={tab === 'ACTIVE' ? 'No active orders' : 'No past orders yet'}
-            message="When you accept a quote or book a service, it shows up here until it's delivered or done." />
+            message="When you buy from a shop, accept a quote or book a service, it shows up here until it's delivered or done." />
         ) : rows.map((r) => (
           <Card key={r.id} onPress={() => nav.push('RequestDetail', { id: r.id })} accessibilityLabel={`Order ${r.request_number}`}>
             <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>

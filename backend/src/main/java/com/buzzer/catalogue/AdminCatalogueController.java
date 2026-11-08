@@ -82,6 +82,8 @@ public class AdminCatalogueController {
                 SELECT c.id, c.code, c.name, c.description, c.icon, c.image_url, c.sort_order, c.active, c.workflow_template, c.vertical,
                        c.is_global_special, c.advisory_notice, c.default_form_schema::text AS default_form_schema,
                        (SELECT count(*) FROM subcategories s WHERE s.category_id = c.id) AS subcategory_count,
+                       (SELECT json_agg(json_build_object('id', s.id, 'name', s.name) ORDER BY s.sort_order)::text FROM subcategories s
+                        WHERE s.category_id = c.id AND s.active) AS subcategories_json,
                        (SELECT count(*) FROM service_items i JOIN subcategories s ON s.id = i.subcategory_id WHERE s.category_id = c.id) AS service_count,
                        (SELECT count(DISTINCT pc.partner_id) FROM partner_capabilities pc JOIN subcategories s ON s.id = pc.subcategory_id
                           WHERE s.category_id = c.id AND pc.status = 'APPROVED') AS approved_partner_count

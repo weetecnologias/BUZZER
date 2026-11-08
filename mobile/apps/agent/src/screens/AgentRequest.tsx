@@ -226,6 +226,18 @@ export function AgentRequestScreen({ params }: { params: { id: string } }) {
           </Row>
         </Card>
 
+        {d.order ? (
+          <Card style={{ borderColor: colors.secondary, borderWidth: 2 }}>
+            <Row style={{ justifyContent: 'space-between' }}>
+              <Text style={{ fontWeight: '800', color: colors.text, flex: 1 }}>🛍️ Order {d.order.order_number}</Text>
+              <StatusBadge status={d.order.status} />
+            </Row>
+            <KeyValue k="Shop" v={d.order.shop_name} />
+            <KeyValue k="Total" v={money(d.order.total_amount)} />
+            <KeyValue k="Fulfilment" v={`${d.order.fulfilment === 'PICKUP' ? 'Pickup' : 'Shop delivers'} · ${d.order.payment_method === 'ONLINE' ? 'online payment' : 'pay later'}`} />
+            <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>Only the customer can pay or cancel; the shop confirms and hands over with the customer's code.</Text>
+          </Card>
+        ) : null}
         {(d.attachments ?? []).length ? (
           <Card>
             <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>📎 Photos & documents</Text>
