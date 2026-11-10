@@ -4,6 +4,7 @@ import {
   api, Button, Card, Chip, colors, ErrorState, font, GradientHeader, KeyValue, Loading, Notice, Row, Screen, space, useAction, useAuth,
   useOnRefocus, useQuery,
 } from '@buzzer/core';
+import { Workspace } from './Drafts';
 
 export function DashboardScreen({ onOpenTab }: { onOpenTab: (t: string) => void }) {
   const { signOut } = useAuth();
@@ -53,6 +54,7 @@ export function DashboardScreen({ onOpenTab }: { onOpenTab: (t: string) => void 
                 </Card>
               ))}
             </View>
+            <Workspace onOpenTab={onOpenTab} />
             <Card>
               <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>My performance (30 days)</Text>
               <KeyValue k="Requests handled" v={String(p.total_requests)} />

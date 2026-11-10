@@ -78,6 +78,8 @@ public class DirectQuoteService {
     private final AuditService audit;
     private final com.buzzer.request.AttachmentService attachments;
     private final RfqVendorSelector rfqVendors;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.buzzer.ops.SlaPolicy slaPolicy;
 
     public DirectQuoteService(JdbcClient jdbc, Json json, BusinessIds ids, RequestRepository requests, PartnerEligibility eligibility,
                               AgentAllocationService allocation, NotificationService notifications, SettingsService settings,
@@ -426,8 +428,7 @@ public class DirectQuoteService {
             agentId = allocation.onDuty(r.customerUserId()).map(AgentAllocationService.Candidate::id).orElse(null);
             source = agentId == null ? null : "ON_DUTY";
         }
-        int sla = jdbc.sql("SELECT first_response_minutes FROM sla_rules WHERE priority = :p AND active").param("p", r.priority())
-                .query(Integer.class).optional().orElse(120);
+        int sla = slaPolicy.firstResponseMinutes(jdbc.sql("SELECT vertical FROM service_requests WHERE id = :r").param("r", r.id()).query(String.class).single(), r.priority());
         jdbc.sql("""
                 UPDATE service_requests SET handling_mode = 'AGENT', agent_id = COALESCE(:a, agent_id), agent_source = COALESCE(:src, agent_source),
                   handed_to_agent_at = now(), handover_reason = :reason, agent_seen_at = NULL, first_agent_response_at = NULL,

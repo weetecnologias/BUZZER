@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, useApi, useMutation } from "@/lib/api";
 import { Card, ErrorBox, Loading, Notice, PageHeader } from "@/components/ui";
 import { RfqRulesCard } from "@/components/rfq-rules";
+import { VerticalSlaCard } from "@/components/sla-verticals";
 
 export default function Settings() {
   const settings = useApi<any[]>("admin/settings");
@@ -33,6 +34,7 @@ export default function Settings() {
             ))}</tbody></table>
         )}
       </Card>
+      <VerticalSlaCard onSaved={setSaved} />
       <RfqRulesCard onSaved={setSaved} />
       <Card title="Platform settings">
         {settings.loading && !settings.data ? <Loading /> : (

@@ -335,13 +335,16 @@ public class AgentController {
         RequestRepository.Row r = authorised(id);
         requests.addMessage(id, CurrentUser.id(), "AGENT", in.body());
         notifications.notifyUser(r.customerUserId(), "Message from your agent", in.body(), "AGENT_MESSAGE", "REQUEST", id);
+        activityLog.log(access.me(CurrentUser.id()).agentId(), "MESSAGE", "Message on " + r.requestNumber() + ": " + in.body(), r.customerUserId(), id, null, null);
         return ApiResponse.of(Map.of("sent", true));
     }
 
     @PostMapping("/requests/{id}/call-log")
     public ApiResponse<Map<String, Object>> callLog(@PathVariable UUID id, @Valid @RequestBody CallLogInput in) {
-        authorised(id);
+        RequestRepository.Row r = authorised(id);
         requests.addMessage(id, CurrentUser.id(), "AGENT_CALL_LOG", "Call: " + in.outcome() + (in.note() == null ? "" : " - " + in.note()));
+        activityLog.log(access.me(CurrentUser.id()).agentId(), "CALL", "Call about " + r.requestNumber() + ": " + in.outcome() + (in.note() == null ? "" : " - " + in.note()),
+                r.customerUserId(), id, null, null);
         return ApiResponse.of(Map.of("logged", true));
     }
 
@@ -357,6 +360,9 @@ public class AgentController {
         execution.agentOverride(id, CurrentUser.id(), in.purpose(), in.reason());
         return ApiResponse.of(Map.of("status", requests.get(id).status()));
     }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private AgentActivityService activityLog;
 
     private RequestRepository.Row authorised(UUID id) {
         AgentAccess.Me me = access.me(CurrentUser.id());

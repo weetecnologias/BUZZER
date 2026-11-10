@@ -6,6 +6,7 @@ import {
   api, Avatar, callPhone, Card, colors, EmptyState, ErrorState, font, gradient, Loading, radius, Row, Screen, SectionTitle, shadow, space,
   StatusBadge, openWhatsApp, useAuth, useNav, useOnRefocus, useQuery,
 } from '@buzzer/core';
+import { ApprovalsBanner } from './Approvals';
 import { CartBar, CategoryChip, CircleButton, DealCard, PopularServiceRow } from '../components/Catalog';
 import { useCart } from '../cart';
 import { useVerticals } from './Unified';
@@ -170,6 +171,7 @@ export function HomeScreen({ onOpenTab }: { onOpenTab?: (t: string, opts?: { ver
             <Text style={{ color: '#CFEBD9', fontSize: font.xs }}>Quotes · bookings · errands · anything else</Text>
           </LinearGradient>
         </Pressable>
+        <ApprovalsBanner />
 
         {(home.data?.active_orders ?? []).length ? (
           <>

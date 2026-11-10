@@ -8,6 +8,7 @@ import { InboxScreen } from './src/screens/Inbox';
 import { AgentRequestScreen } from './src/screens/AgentRequest';
 import { CustomersScreen, CustomerDetailScreen, RegisterCustomerScreen } from './src/screens/Customers';
 import { CreateRequestScreen } from './src/screens/CreateRequest';
+import { PrepareDraftScreen } from './src/screens/Drafts';
 
 const TABS = [
   { key: 'home', label: 'Dashboard', glyph: '📊' },
@@ -45,6 +46,7 @@ export default function App() {
             Customer: ({ params }) => <CustomerDetailScreen params={params} />,
             RegisterCustomer: () => <RegisterCustomerScreen />,
             CreateRequest: ({ params }) => <CreateRequestScreen params={params} />,
+            PrepareDraft: ({ params }) => <PrepareDraftScreen params={params} />,
           }}
         />
       </AuthProvider>

@@ -48,10 +48,14 @@ public class RequestService {
     private final RequestRepository requests;
     private final NotificationService notifications;
     private final AuditService audit;
+    private final com.buzzer.ops.SlaPolicy sla;
+    private final com.buzzer.agent.AgentActivityService activity;
 
     public RequestService(JdbcClient jdbc, Json json, BusinessIds ids, CatalogueService catalogue, FormSchemaValidator forms,
                           AgentAllocationService allocation, RequestRepository requests, NotificationService notifications,
-                          AuditService audit) {
+                          AuditService audit, com.buzzer.ops.SlaPolicy sla, com.buzzer.agent.AgentActivityService activity) {
+        this.sla = sla;
+        this.activity = activity;
         this.jdbc = jdbc;
         this.json = json;
         this.ids = ids;
@@ -134,8 +138,7 @@ public class RequestService {
 
         boolean byAgent = "AGENT_APP".equals(cmd.createdVia());
         String status = byAgent ? RequestStatus.AGENT_REVIEW.name() : RequestStatus.REQUEST_CREATED.name();
-        int slaMinutes = jdbc.sql("SELECT first_response_minutes FROM sla_rules WHERE priority = :p AND active")
-                .param("p", priority).query(Integer.class).optional().orElse(120);
+        int slaMinutes = sla.firstResponseMinutes(vertical, priority);
         String number = ids.next(BusinessIds.Kind.REQUEST);
         UUID id = jdbc.sql("""
                 INSERT INTO service_requests(request_number, customer_user_id, created_by_user_id, created_via, consent_method,
@@ -173,6 +176,19 @@ public class RequestService {
                             default -> "Submitted by customer";
                         })
                 .update();
+        // Backup coverage: the primary agent is away -> the backup (else the best available agent) covers this request.
+        java.util.Optional<AgentAllocationService.Candidate> cover = byAgent || automated ? java.util.Optional.empty() : allocation.coverFor(cmd.customerUserId(), agentId);
+        if (cover.isPresent()) {
+            String primaryName = jdbc.sql("SELECT display_name FROM agents WHERE id = :a").param("a", agentId).query(String.class).single();
+            jdbc.sql("UPDATE service_requests SET escalated_to_agent_id = :b, escalated_at = now() WHERE id = :id").param("b", cover.get().id()).param("id", id).update();
+            requests.note(id, status, null, "SYSTEM", primaryName + " is away - " + cover.get().displayName() + " is covering this request");
+            activity.log(cover.get().id(), "COVERING_FOR_PRIMARY", "Covering " + number + " while " + primaryName + " is away", cmd.customerUserId(), id, null, null);
+            notifications.notifyUser(cover.get().userId(), "Covering for " + primaryName + ": " + number,
+                    "The customer's dedicated agent is away. Please respond to this new request.", "AGENT_ESCALATION", "REQUEST", id);
+        }
+        if (byAgent && agentId != null) {
+            activity.log(agentId, "REQUEST_CREATED", "Created " + number + " for the customer (consent: " + cmd.consentMethod() + ")", cmd.customerUserId(), id, null, null);
+        }
         audit.record(cmd.createdBy(), byAgent ? "AGENT" : "CUSTOMER", "REQUEST_CREATED", "REQUEST", id,
                 Map.of("requestNumber", number, "createdVia", cmd.createdVia(), "consentMethod", String.valueOf(cmd.consentMethod())));
 
@@ -184,7 +200,7 @@ public class RequestService {
                     "PROVIDER_SELECTED".equals(bookingMode) ? "We'll let you know as soon as your professional accepts the booking."
                             : automated ? "We are sending it to verified partners now. Quotes will appear in the app as they arrive."
                             : "Your BUZZER agent will review it shortly.", "REQUEST_CREATED", "REQUEST", id);
-            if (agentId != null && !automated) {
+            if (agentId != null && !automated && cover.isEmpty()) {
                 UUID agentUser = jdbc.sql("SELECT user_id FROM agents WHERE id = :a").param("a", agentId).query(UUID.class).single();
                 notifications.notifyUser(agentUser, "New request " + number, switch (bookingMode) {
                             case "SELF" -> "Customer booked at listed prices - assign a verified partner.";

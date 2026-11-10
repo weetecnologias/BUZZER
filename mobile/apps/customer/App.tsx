@@ -16,6 +16,7 @@ import { CartProvider } from './src/cart';
 import { OnboardingGate, SubscribeAgentScreen } from './src/screens/Onboarding';
 import { AssistanceScreen, CreateRequestScreen, ExploreScreen, OrdersScreen, UniversalSearchScreen } from './src/screens/Unified';
 import { BookServiceScreen } from './src/screens/BookService';
+import { ApprovalScreen, ApprovalsScreen } from './src/screens/Approvals';
 import { CompareQuotesScreen, OrderDetailScreen, ProductCartScreen, ProductScreen, RfqCreateScreen, ShopProfileScreen, ShopScreen } from './src/screens/Shop';
 
 /** Unified BUZZER navigation: Home · Explore · My Requests · Orders · Account (notifications live in the header). */
@@ -75,6 +76,8 @@ export default function App() {
             Notifications: () => <NotificationsScreen />,
             Shop: ({ params }) => <ShopScreen params={params ?? {}} />,
             BookService: ({ params }) => <BookServiceScreen params={params} />,
+            Approvals: () => <ApprovalsScreen />,
+            Approval: ({ params }) => <ApprovalScreen params={params} />,
             Product: ({ params }) => <ProductScreen params={params} />,
             ShopProfile: ({ params }) => <ShopProfileScreen params={params} />,
             ProductCart: () => <ProductCartScreen />,

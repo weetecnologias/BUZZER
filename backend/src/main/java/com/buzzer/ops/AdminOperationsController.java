@@ -193,7 +193,8 @@ public class AdminOperationsController {
     public ApiResponse<List<Map<String, Object>>> agents() {
         return ApiResponse.of(jdbc.sql("""
                 SELECT a.id, a.display_name, u.phone, a.availability, a.languages, a.is_manager, a.wing, a.manager_id, m.display_name AS manager_name,
-                       a.max_customers, a.shift_start, a.shift_end, a.active, c.name AS city_name,
+                       a.max_customers, a.shift_start, a.shift_end, a.active, c.name AS city_name, a.accepts_dedicated,
+                       (SELECT string_agg(s.vertical, ',' ORDER BY s.vertical) FROM agent_skills s WHERE s.agent_id = a.id) AS skills,
                        (SELECT count(*) FROM customer_agent_links l WHERE l.agent_id = a.id AND l.active AND l.link_role = 'PRIMARY') AS primary_customers,
                        (SELECT count(*) FROM service_requests r WHERE r.agent_id = a.id AND r.status NOT IN ('SETTLED','CANCELLED','REJECTED','EXPIRED','REFUNDED')) AS open_requests,
                        (SELECT round(avg(EXTRACT(EPOCH FROM (r.first_agent_response_at - r.created_at)) / 60)::numeric, 1) FROM service_requests r
@@ -218,6 +219,8 @@ public class AdminOperationsController {
                 .param("m", in.maxCustomers()).param("mgr", in.isManager()).param("mid", in.managerId())
                 .param("ss", in.shiftStart()).param("se", in.shiftEnd()).param("wing", in.wing() == null || in.wing().isBlank() ? null : in.wing().trim())
                 .query(UUID.class).single();
+        // New agents are trained for every vertical until an admin narrows their skills.
+        jdbc.sql("INSERT INTO agent_skills(agent_id, vertical) SELECT :a, code FROM platform_verticals ON CONFLICT DO NOTHING").param("a", id).update();
         if (in.localityIds() != null) {
             for (UUID l : in.localityIds()) {
                 jdbc.sql("INSERT INTO agent_localities(agent_id, locality_id) VALUES (:a, :l) ON CONFLICT DO NOTHING").param("a", id).param("l", l).update();
