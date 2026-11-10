@@ -91,6 +91,9 @@ public class EscalationService {
                 .param("reason", "Escalated: " + reason).param("id", p.id()).update();
         audit.record(null, "SYSTEM", "REQUEST_ESCALATED", "REQUEST", p.id(), Map.of("type", type, "to", String.valueOf(target.orElse(null))));
         target.ifPresent(agentId -> {
+            jdbc.sql("""
+                    INSERT INTO agent_activities(agent_id, customer_user_id, request_id, kind, summary) VALUES (:a, :c, :r, 'ESCALATION_RECEIVED', :s)""")
+                    .param("a", agentId).param("c", p.customerUserId()).param("r", p.id()).param("s", "Escalated to you: " + p.requestNumber() + " - " + reason).update();
             UUID user = jdbc.sql("SELECT user_id FROM agents WHERE id = :a").param("a", agentId).query(UUID.class).single();
             notifications.notifyUser(user, "Escalated: " + p.requestNumber(), reason + ". Please respond to the customer.",
                     "AGENT_ESCALATION", "REQUEST", p.id());

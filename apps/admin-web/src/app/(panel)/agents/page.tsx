@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, useApi, useMutation } from "@/lib/api";
 import { ExportMenu } from "@/components/export";
 import { ErrorBox, Field, Loading, Modal, PageHeader, Status } from "@/components/ui";
+import { AgentEligibilityModal } from "@/components/agent-eligibility";
 
 export default function Agents() {
   const list = useApi<any[]>("admin/agents");
@@ -13,6 +14,7 @@ export default function Agents() {
   const [f, setF] = useState({ phone: "", display_name: "", city_id: "", languages: "en,te,hi", max_customers: "300", is_manager: false, manager_id: "", wing: "General" });
   const [edit, setEdit] = useState<any>(null);
   const wings = useApi<any[]>("admin/wings");
+  const [skills, setSkills] = useState<{ id: string; name: string } | null>(null);
   const saveEdit = async () => {
     const body = { wing: edit.wing, max_customers: Number(edit.max_customers), is_manager: edit.is_manager, manager_id: edit.manager_id || null, clear_manager: !edit.manager_id };
     if (await m.run(() => api(`admin/agents/${edit.id}`, { method: "PATCH", body }))) {
@@ -39,7 +41,7 @@ export default function Agents() {
       {list.loading && !list.data ? <Loading /> : list.error ? <ErrorBox message={list.error} onRetry={list.reload} /> : (
         <div className="card table-wrap" style={{ padding: 0 }}>
           <table>
-            <thead><tr><th>Agent</th><th>Wing</th><th>City</th><th>Role</th><th>Availability</th><th>Shift</th><th>Languages</th><th>Primary customers</th><th>Open requests</th><th>Avg first response</th><th /></tr></thead>
+            <thead><tr><th>Agent</th><th>Wing</th><th>City</th><th>Role</th><th>Availability</th><th>Shift</th><th>Languages</th><th>Skills</th><th>Primary customers</th><th>Open requests</th><th>Avg first response</th><th /></tr></thead>
             <tbody>{(list.data ?? []).map((a) => (
               <tr key={a.id}>
                 <td><b>{a.display_name}</b><div className="muted small">{a.phone}</div></td>
@@ -49,15 +51,17 @@ export default function Agents() {
                 <td><Status value={a.availability} /></td>
                 <td>{String(a.shift_start).slice(0, 5)}–{String(a.shift_end).slice(0, 5)}</td>
                 <td>{a.languages}</td>
+                <td className="small">{(a.skills ?? "").split(",").filter(Boolean).map((s: string) => s.charAt(0) + s.slice(1).toLowerCase()).join(", ") || "—"}{a.accepts_dedicated === false ? <div className="muted">no dedicated customers</div> : null}</td>
                 <td>{a.primary_customers} / {a.max_customers}</td>
                 <td>{a.open_requests}</td>
                 <td>{a.avg_first_response_minutes != null ? `${a.avg_first_response_minutes} min` : "—"}</td>
-                <td><button className="btn btn-outline btn-sm" onClick={() => { m.setError(null); setEdit({ id: a.id, name: a.display_name, wing: a.wing ?? "General", max_customers: a.max_customers, is_manager: !!a.is_manager, manager_id: a.manager_id ?? "" }); }}>Edit</button></td>
+                <td className="row" style={{ gap: 4 }}><button className="btn btn-outline btn-sm" onClick={() => setSkills({ id: a.id, name: a.display_name })}>Skills & log</button><button className="btn btn-outline btn-sm" onClick={() => { m.setError(null); setEdit({ id: a.id, name: a.display_name, wing: a.wing ?? "General", max_customers: a.max_customers, is_manager: !!a.is_manager, manager_id: a.manager_id ?? "" }); }}>Edit</button></td>
               </tr>
             ))}</tbody>
           </table>
         </div>
       )}
+      {skills ? <AgentEligibilityModal agent={skills} onClose={() => { setSkills(null); list.reload(); }} /> : null}
       <Modal title="Add agent" open={open} onClose={() => setOpen(false)} footer={<button className="btn btn-primary" disabled={m.busy} onClick={create}>Create agent</button>}>
         <Field label="Mobile number"><input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
         <Field label="Display name"><input value={f.display_name} onChange={(e) => setF({ ...f, display_name: e.target.value })} /></Field>

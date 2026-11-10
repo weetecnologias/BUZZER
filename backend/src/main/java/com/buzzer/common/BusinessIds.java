@@ -22,7 +22,8 @@ public class BusinessIds {
         PAYMENT("PAY", "seq_payment_number"),
         REFUND("RFD", "seq_refund_number"),
         PAYOUT("PYO", "seq_payout_number"),
-        ORDER("ORD", "seq_order_number");
+        ORDER("ORD", "seq_order_number"),
+        DRAFT("DRF", "seq_draft_number");
 
         final String prefix;
         final String sequence;

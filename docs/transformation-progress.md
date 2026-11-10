@@ -9,9 +9,106 @@ Plan: [transformation-plan.md](transformation-plan.md) · Audit: [transformation
 | 3. Unified UI/UX & navigation | ✅ Done |
 | 4. Request engine | ✅ Done |
 | 5. Marketplace & RFQ | ✅ Done |
-| **6. Services & provider workflows** | ✅ **Done** — acceptance test D passes |
-| 7. Agent & personal assistance | ⏭ Next |
-| 8–10 | Planned |
+| 6. Services & provider workflows | ✅ Done |
+| **7. Agent & personal assistance** | ✅ **Done** — acceptance tests F, G, H, M pass |
+| 8. Tasks & errands | ⏭ Next |
+| 9–10 | Planned |
+
+---
+
+## Stage 7 — Agent & personal assistance
+
+### Delivered
+
+**Drafts the customer approves (Vertical C rule)**
+- An agent prepares, for a customer in their portfolio: a **quotation request** (items, brand, quantity, bulk), **products from one shop**
+  (listing offers and quantities) or a **service booking** (service form, address, free slot, chosen professional). Each is checked when
+  sent (portfolio, address ownership, category, one shop, stock / MOQ, provider free at the slot, service form valid) and shown to the
+  customer with a preview and total.
+- **Only the customer can approve** — in their own app. Approval runs the normal customer flow under the customer's identity: the RFQ is
+  sent to shops, the booking is made (customer picks pay after service / online), or the products go into the customer's cart for them to
+  check out and pay. The customer can also say no (with a reason). Drafts expire after 72 hours (setting). The resulting request's timeline
+  says "Prepared by agent X and approved by the customer".
+- **Agents can never approve, accept a quote, check out or pay**: all of those endpoints are customer-only (403 for agents), and the
+  approval checks the draft belongs to the caller.
+
+**Agent activity log**
+- Every call and message on a request, drafts sent / approved / rejected / withdrawn, requests created for a customer, escalations
+  received and cover for an away colleague are logged automatically; agents add notes, calls and **vendor follow-ups** (linked to a
+  partner) by hand. Managers see their team's log; admins see each agent's log.
+
+**Workspace across all verticals**
+- New agent dashboard section: pending RFQs, vendor follow-ups (no quote after 2 hours, setting), active orders, service bookings, tasks,
+  waiting on customer, drafts awaiting approval, escalated to me, completed (30 days); open / done per business area; **first-response
+  countdown**; SLA met %, drafts approved; recent activity.
+
+**Eligibility-based dedicated agents (F)**
+- Agents have **skills per business area** and an **accepts dedicated customers** switch (off for trainees — they still take one-off and
+  escalated requests). Dedicated allocation only uses eligible agents and ranks: locality → first language → trained for the areas the
+  customer is interested in → languages in common → availability → workload; managers last; backup allocated alongside.
+
+**Backup coverage (G)**
+- When the dedicated agent is offline / on leave, a new request goes straight to the **backup** (else the best available agent): the
+  timeline says who is covering, the backup is notified and sees it in "escalated to me". The existing hand-over of open requests when an
+  agent goes offline stays.
+
+**SLA per business area (H)**
+- First-response time per vertical (pilot: Services 60, Tasks 60, Shop & Buy 120, Personal Assistance 120 minutes), editable by admins;
+  HIGH / URGENT use the shorter of that and the priority rule. Breaches escalate to the backup → best available agent → manager (existing
+  engine), now also logged on the receiving agent's activity.
+
+**Apps**
+- Agent: workspace on the dashboard; on a customer — **Prepare for approval** (quotation request / products from a shop / service booking
+  with slots, professionals and the service form), drafts with status (withdraw while pending) and the activity log with a quick logger.
+- Customer: Home banner "N items waiting for your approval", **Approvals** list and detail (preview, total, payment choice for bookings,
+  approve / say no).
+- Admin: Settings → **First response time per business area**; Agents → skills column and **Skills & log** (areas, dedicated switch,
+  recent activity).
+
+### Database migration (additive)
+- `V17__agent_drafts_activity_sla.sql` — `agents.accepts_dedicated`, `agent_skills` (backfill: all areas), `vertical_sla`, `agent_drafts`,
+  `agent_activities`, draft / follow-up settings.
+- Dev seed `V1005__dev_agent_skills.sql` — skills for the seeded agents.
+
+### API contracts (new)
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/agent/workspace` | agent | Queues, by-area counts, SLA countdown, metrics, recent activity |
+| POST | `/api/v1/agent/customers/{customerId}/drafts` | agent (portfolio) | `kind` RFQ / PURCHASE / BOOKING with `rfq` / `purchase` / `booking` |
+| GET | `/api/v1/agent/drafts?status&customerId` | agent (+ team for managers) | |
+| POST | `/api/v1/agent/drafts/{id}/cancel` | agent | Withdraw while pending |
+| GET | `/api/v1/agent/customers/{customerId}/services/{serviceId}/slots`, `/providers` | agent (portfolio) | For booking drafts |
+| GET / POST | `/api/v1/agent/activity` | agent | List (own / team); log CALL, NOTE, VENDOR_FOLLOW_UP |
+| GET | `/api/v1/customer/drafts?status`, `/{id}` | customer | Own drafts with preview |
+| POST | `/api/v1/customer/drafts/{id}/approve` | customer only | `payment_method` for bookings; returns `next` (REQUEST / PRODUCT_CART) |
+| POST | `/api/v1/customer/drafts/{id}/reject` | customer only | Optional `note` |
+| GET / PUT | `/api/v1/admin/sla/verticals[/{code}]` | admin (PUT: ADMIN) | `first_response_minutes` 15-480 |
+| GET / PUT | `/api/v1/admin/agents/{id}/eligibility` | admin (PUT: ADMIN / AGENT_MANAGER) | `verticals`, `accepts_dedicated` |
+| GET | `/api/v1/admin/agents/{id}/activity`, `/api/v1/admin/requests/{id}/agent-activity` | admin | |
+
+### Tests
+- `AgentAssistanceTest` (4):
+  - **F** an agent not taking dedicated customers is never allocated; once allowed, the Hindi speaker gets them; with equal languages the
+    agent trained for Shop & Buy gets the Shop & Buy customer; validation and permissions.
+  - **G** primary on leave → new request covered by the backup (timeline, activity, workspace, access); primary back → no cover.
+  - **H** Services request gets 60 minutes; admin sets 90 → new requests 90; URGENT → 30; invalid / non-admin changes refused; workspace
+    countdown; breach escalates to the backup with an activity entry.
+  - **M + drafts** RFQ, booking and purchase drafts; not for customers outside the portfolio; agent gets 403 on approve, quote acceptance,
+    payment simulation and checkout; another customer gets 404; customer approves each (RFQ sent to shops with the "prepared by agent"
+    timeline entry, booking assigned to the professional, products in the cart); double approval and expired drafts refused; activity log
+    and workspace metrics.
+- **Full suite: 63 passed, 0 failed.** Typecheck passes (customer, partner, agent, admin); admin production build passes.
+- Live check on the dev backend: Priya Nair's workspace → RFQ draft for Anjali Menon → agent approval blocked (403) → Anjali approves → request
+  created → activity shows sent / approved; SLA per area listed.
+- Browser (phone size): agent dashboard workspace; customer page with drafts and activity log; Prepare for approval (booking search now
+  shows only bookable services and asks for an address first).
+
+### Rollback
+Revert the Stage 7 commit; V17 is additive (older code ignores the new tables / column; SLA falls back to the per-priority rules).
+
+### Not in Stage 7 (by plan)
+Task drafts (with the task domain in Stage 8); agent membership plans (Stage 9).
 
 ---
 

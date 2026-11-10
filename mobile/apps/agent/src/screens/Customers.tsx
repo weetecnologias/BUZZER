@@ -4,6 +4,7 @@ import {
   api, Badge, Button, callPhone, Card, Chip, colors, dateTime, EmptyState, ErrorState, font, GradientHeader, KeyValue, Loading, Notice, radius, Row,
   Screen, space, StatusBadge, TextField, useAction, useNav, useOnRefocus, useQuery, LANGUAGE_NAMES, preferenceLines,
 } from '@buzzer/core';
+import { CustomerWorkPanel } from './Drafts';
 
 export function CustomersScreen() {
   const nav = useNav();
@@ -54,6 +55,8 @@ export function CustomerDetailScreen({ params }: { params: { id: string; name?: 
                 <Button title="📞 Call" small variant="secondary" onPress={() => callPhone(d.profile.phone)} />
                 <Button title="+ New request" small onPress={() => nav.push('CreateRequest', { customerId: params.id, name: params.name, addresses: d.addresses })} />
               </Row>
+              <Button title="📝 Prepare for approval (quote / products / booking)" small variant="outline"
+                onPress={() => nav.push('PrepareDraft', { customerId: params.id, name: params.name ?? d.profile.full_name, addresses: d.addresses })} />
             </Card>
             <Text style={{ fontWeight: '700', color: colors.text, fontSize: font.lg }}>Requests</Text>
             {(d.requests ?? []).length === 0 ? <EmptyState title="No requests yet" /> : d.requests.map((r: any) => (
@@ -65,6 +68,7 @@ export function CustomerDetailScreen({ params }: { params: { id: string; name?: 
                 <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>#{r.request_number} • {dateTime(r.created_at)}</Text>
               </Card>
             ))}
+            <CustomerWorkPanel customerId={params.id} />
           </>
         )}
       </Screen>
