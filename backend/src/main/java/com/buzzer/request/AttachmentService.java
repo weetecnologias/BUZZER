@@ -53,6 +53,14 @@ public class AttachmentService {
 
     @Transactional
     public Map<String, Object> upload(UUID requestId, UUID uploaderUserId, String role, MultipartFile file, String visibility, String note) {
+        return upload(requestId, uploaderUserId, role, file, visibility, note, "GENERAL");
+    }
+
+    /** purpose: GENERAL, or BEFORE / AFTER for a provider's completion evidence. */
+    @Transactional
+    public Map<String, Object> upload(UUID requestId, UUID uploaderUserId, String role, MultipartFile file, String visibility, String note, String purpose) {
+        String why = purpose == null || purpose.isBlank() ? "GENERAL" : purpose.toUpperCase();
+        if (!List.of("GENERAL", "BEFORE", "AFTER").contains(why)) throw BusinessException.invalid("Purpose must be BEFORE or AFTER");
         RequestRepository.Row r = requests.lock(requestId);
         if (java.util.Set.of("SETTLED", "CANCELLED", "REJECTED", "EXPIRED", "REFUNDED", "VENDOR_REJECTED").contains(r.status())) throw BusinessException.invalid("Attachments can't be added to a closed request");
         if (file == null || file.isEmpty()) throw BusinessException.invalid("Choose a file to upload");
@@ -73,11 +81,16 @@ public class AttachmentService {
         if (type == null) throw BusinessException.invalid("Only photos (PNG, JPG, WebP) and PDF documents can be attached");
         String name = safeName(file.getOriginalFilename(), type);
         UUID id = jdbc.sql("""
-                INSERT INTO request_attachments(request_id, uploaded_by, uploader_role, file_name, content_type, size_bytes, data, visibility, note)
-                VALUES (:r, :u, :role, :n, :t, :s, :d, :v, :note) RETURNING id""")
+                INSERT INTO request_attachments(request_id, uploaded_by, uploader_role, file_name, content_type, size_bytes, data, visibility, note, purpose)
+                VALUES (:r, :u, :role, :n, :t, :s, :d, :v, :note, :purpose) RETURNING id""")
                 .param("r", requestId).param("u", uploaderUserId).param("role", role).param("n", name).param("t", type).param("s", data.length)
-                .param("d", data).param("v", vis).param("note", note == null || note.isBlank() ? null : note.trim()).query(UUID.class).single();
-        requests.note(requestId, r.status(), uploaderUserId, role, "Attachment added: " + name + ("PARTNERS".equals(vis) ? " (shared with quoting partners)" : ""));
+                .param("d", data).param("v", vis).param("note", note == null || note.isBlank() ? null : note.trim()).param("purpose", why)
+                .query(UUID.class).single();
+        requests.note(requestId, r.status(), uploaderUserId, role, switch (why) {
+            case "BEFORE" -> "Before photo added by the professional";
+            case "AFTER" -> "After photo (finished work) added by the professional";
+            default -> "Attachment added: " + name + ("PARTNERS".equals(vis) ? " (shared with quoting partners)" : "");
+        });
         audit.record(uploaderUserId, role, "ATTACHMENT_UPLOADED", "REQUEST", requestId, Map.of("attachment", id.toString(), "type", type, "bytes", data.length));
         return metadata(id).orElseThrow();
     }
@@ -104,9 +117,18 @@ public class AttachmentService {
         return out;
     }
 
+    /** Files one user uploaded to a request (a provider's own evidence). */
+    public List<Map<String, Object>> listBy(UUID requestId, UUID userId) {
+        List<UUID> ids = jdbc.sql("SELECT id FROM request_attachments WHERE request_id = :r AND uploaded_by = :u AND deleted_at IS NULL ORDER BY created_at")
+                .param("r", requestId).param("u", userId).query(UUID.class).list();
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (UUID id : ids) metadata(id).ifPresent(out::add);
+        return out;
+    }
+
     private Optional<Map<String, Object>> metadata(UUID id) {
         return jdbc.sql("""
-                SELECT a.id, a.file_name, a.content_type, a.size_bytes, a.visibility, a.note, a.uploader_role, a.created_at, u.full_name AS uploaded_by_name
+                SELECT a.id, a.file_name, a.content_type, a.size_bytes, a.visibility, a.note, a.uploader_role, a.purpose, a.created_at, u.full_name AS uploaded_by_name
                 FROM request_attachments a JOIN users u ON u.id = a.uploaded_by WHERE a.id = :id AND a.deleted_at IS NULL""")
                 .param("id", id).query().listOfRows().stream().findFirst().map(m -> {
                     Map<String, Object> out = new LinkedHashMap<>(m);

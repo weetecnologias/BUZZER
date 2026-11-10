@@ -6,6 +6,7 @@ import {
   newIdempotencyKey, Notice, radius, Row, Screen, space, StatusBadge, statusLabel, TextField, Timeline, useAction, useNav, useOnRefocus, useQuery,
   AttachmentList, Toggle,
 } from '@buzzer/core';
+import { ChooseAnotherProfessional } from './BookService';
 
 const CLOSED_STATES = ['SETTLED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'REFUNDED'];
 
@@ -156,7 +157,7 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
           {d.request_type_label ? <KeyValue k="Type" v={d.request_type_label} /> : null}
           <KeyValue k="Created" v={dateTime(d.created_at)} />
           {d.agent_name ? <KeyValue k="Your agent" v={d.agent_name} /> : null}
-          {d.preferred_start ? <KeyValue k="Preferred time" v={dateTime(d.preferred_start)} /> : null}
+          {d.preferred_start ? <KeyValue k={d.booking_mode === 'PROVIDER_SELECTED' ? 'Booked for' : 'Preferred time'} v={dateTime(d.preferred_start)} /> : null}
           {d.address_snapshot ? <KeyValue k="Address" v={`${d.address_snapshot.line1}${d.address_snapshot.locality_name ? ', ' + d.address_snapshot.locality_name : ''}`} /> : null}
         </Card>
         {d.order ? (
@@ -185,7 +186,7 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
           <Card>
             <Row style={{ justifyContent: 'space-between', marginBottom: space.sm }}>
               <Text style={{ fontWeight: '700', color: colors.text }}>Booked items</Text>
-              <Badge label={d.booking_mode === 'SELF' ? 'Booked at listed prices' : d.booking_mode === 'DIRECT_QUOTE' ? 'Quotes from partners' : 'Agent arranging'}
+              <Badge label={d.booking_mode === 'SELF' ? 'Booked at listed prices' : d.booking_mode === 'PROVIDER_SELECTED' ? 'Booked instantly' : d.booking_mode === 'DIRECT_QUOTE' ? 'Quotes from partners' : 'Agent arranging'}
                 tone={d.booking_mode === 'AGENT_ASSISTED' ? 'info' : 'success'} />
             </Row>
             {d.line_items.map((l: any, i: number) => (
@@ -275,6 +276,12 @@ export function RequestDetailScreen({ params }: { params: { id: string; justCrea
         )) : null}
 
         {/* Payment */}
+        {d.booking_mode === 'PROVIDER_SELECTED' && ['PARTNER_DECLINED', 'NO_SHOW'].includes(status) ? (
+          <ChooseAnotherProfessional requestId={params.id} onDone={reload} />
+        ) : null}
+        {d.booking_mode === 'PROVIDER_SELECTED' && status === 'PARTNER_ASSIGNED' ? (
+          <Notice tone="info" message="Waiting for your professional to accept (usually within the hour). If they can't, you'll choose another one for the same time." />
+        ) : null}
         {status === 'PAYMENT_PENDING' && lastPayment ? (
           <Card>
             <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>Payment</Text>

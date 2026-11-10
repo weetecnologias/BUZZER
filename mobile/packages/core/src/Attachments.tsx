@@ -5,7 +5,7 @@ import { colors, font, radius, space } from './theme';
 
 export type Attachment = {
   id: string; file_name: string; content_type: string; size_bytes: number; visibility: 'PRIVATE' | 'PARTNERS'; note: string | null;
-  uploader_role: string; uploaded_by_name: string | null; created_at: string; url: string;
+  uploader_role: string; uploaded_by_name: string | null; created_at: string; url: string; purpose?: 'GENERAL' | 'BEFORE' | 'AFTER';
 };
 
 const kb = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
@@ -29,10 +29,12 @@ export function AttachmentList({ items, onDelete, canDelete, showVisibility = tr
               {image ? <Image source={{ uri: href }} style={styles.thumb} accessibilityIgnoresInvertColors /> : <Text style={{ fontSize: 26 }}>📄</Text>}
             </Pressable>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontWeight: '700', color: colors.text }} numberOfLines={1}>{a.file_name}</Text>
+              <Text style={{ fontWeight: '700', color: colors.text }} numberOfLines={1}>
+                {a.purpose === 'BEFORE' ? '📷 Before the work · ' : a.purpose === 'AFTER' ? '✅ Finished work · ' : ''}{a.file_name}
+              </Text>
               <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>
                 {kb(a.size_bytes)}{showVisibility ? ` • ${a.visibility === 'PARTNERS' ? 'Shared with quoting partners' : 'Private'}` : ''}
-                {a.uploaded_by_name ? ` • ${a.uploader_role === 'CUSTOMER' ? a.uploaded_by_name : `${a.uploader_role.toLowerCase()} ${a.uploaded_by_name}`}` : ''}
+                {a.uploaded_by_name ? ` • ${a.uploader_role === 'CUSTOMER' ? a.uploaded_by_name : `${a.uploader_role === 'PARTNER' ? 'professional' : a.uploader_role.toLowerCase()} ${a.uploaded_by_name}`}` : ''}
               </Text>
               {a.note ? <Text style={{ color: colors.text, fontSize: font.xs }}>{a.note}</Text> : null}
             </View>

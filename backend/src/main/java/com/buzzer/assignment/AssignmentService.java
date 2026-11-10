@@ -155,6 +155,12 @@ public class AssignmentService {
         endAssignment(a, "DECLINED", "PARTNER", reason);
         requests.transition(r, RequestStatus.PARTNER_DECLINED, partnerUserId, "PARTNER", reason);
         alertAgent(r, "Partner declined " + r.requestNumber(), "Reason: " + reason + ". Please reassign.");
+        // Instant bookings: the customer chooses another professional for the same slot themselves.
+        if ("PROVIDER_SELECTED".equals(jdbc.sql("SELECT booking_mode FROM service_requests WHERE id = :r").param("r", r.id()).query(String.class).single())) {
+            notifications.notifyUser(r.customerUserId(), "Choose another professional - " + r.requestNumber(),
+                    "Your professional can't make it (" + reason + "). Pick another one for the same time - your price stays the same.",
+                    "REQUEST_UPDATE", "REQUEST", r.id());
+        }
     }
 
     /** Partner cancels an accepted booking. Reason is mandatory; repeated cancellations raise an admin alert. */

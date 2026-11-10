@@ -54,6 +54,12 @@ export function NewRequestScreen({ params }: { params: { serviceItemId?: string;
         {detail.loading ? <Loading /> : detail.error ? <ErrorState message={detail.error} onRetry={detail.reload} /> : (
           <>
             {detail.data?.advisory_notice ? <Notice tone="warning" message={detail.data.advisory_notice} /> : null}
+            {params.serviceItemId && !['QUOTE_REQUIRED', 'API_PRICED'].includes((detail.data as any)?.pricing_type) ? (
+              <Card onPress={() => nav.replace('BookService', { serviceItemId: params.serviceItemId, title: params.title })} accessibilityLabel="Book instantly">
+                <Text style={{ fontWeight: '900', color: colors.forest, fontSize: font.md }}>⚡ Book instantly</Text>
+                <Text style={{ color: colors.textSecondary }}>Pick a time and a verified professional yourself - see ratings, jobs done and prices. ›</Text>
+              </Card>
+            ) : null}
             <Card>
               <DynamicForm schema={schema} values={values} errors={{ ...errors, ...action.fieldErrors }}
                 onChange={(k, v) => setValues((s) => ({ ...s, [k]: v }))} />

@@ -10,6 +10,7 @@ import { JobsScreen, JobDetailScreen } from './src/screens/Jobs';
 import { EarningsScreen } from './src/screens/Earnings';
 import { AccountScreen } from './src/screens/Account';
 import { PriceListScreen } from './src/screens/PriceList';
+import { CalendarScreen } from './src/screens/Calendar';
 import { CatalogueScreen, ListingFormScreen, LocationFormScreen, ProposeProductScreen, ShopHomeScreen, ShopOrderScreen } from './src/screens/Shop';
 
 /** Role-based tabs: shops (retail, wholesale, distributor) get a Shop tab; service providers keep Jobs. */
@@ -60,6 +61,7 @@ function Root() {
         Notifications: () => <NotificationsWrapper />,
         PriceList: () => <PriceListScreen />,
         ShopOrder: ({ params }) => <ShopOrderScreen params={params} />,
+        Calendar: () => <CalendarScreen />,
         Catalogue: () => <CatalogueScreen />,
         ListingForm: ({ params }) => <ListingFormScreen params={params} />,
         ProposeProduct: () => <ProposeProductScreen />,

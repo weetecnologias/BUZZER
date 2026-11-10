@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import {
   api, Button, callPhone, Card, Chip, colors, ConfirmDialog, dateTime, EmptyState, ErrorState, font, GradientHeader, KeyValue, Loading, money, Notice,
-  Row, Screen, space, StatusBadge, statusLabel, TextField, useAction, useNav, useOnRefocus, useQuery,
+  Row, Screen, space, StatusBadge, statusLabel, TextField, useAction, useNav, useOnRefocus, useQuery, AttachmentList,
 } from '@buzzer/core';
 
 export function JobsScreen() {
@@ -12,7 +13,7 @@ export function JobsScreen() {
   useOnRefocus(q.refresh);
   return (
     <View style={{ flex: 1 }}>
-      <GradientHeader title="My jobs" subtitle="Assigned bookings" />
+      <GradientHeader title="My jobs" subtitle="Assigned bookings" right={<Button title="🗓️ Calendar" small variant="secondary" onPress={() => nav.push('Calendar')} />} />
       <Screen refreshing={q.refreshing} onRefresh={q.refresh}>
         <Row>
           <Chip label="Active" selected={activeOnly} onPress={() => setActiveOnly(true)} />
@@ -27,7 +28,8 @@ export function JobsScreen() {
               <StatusBadge status={j.request_status} />
             </Row>
             <Text style={{ color: colors.textSecondary, fontSize: font.xs }}>#{j.request_number} • {j.assignment_number}</Text>
-            {j.scheduled_at ? <Text style={{ color: colors.emerald, marginTop: 4 }}>📅 {dateTime(j.scheduled_at)}</Text> : null}
+            {j.scheduled_at || j.slot_start ? <Text style={{ color: colors.emerald, marginTop: 4 }}>📅 {dateTime(j.scheduled_at ?? j.slot_start)}{j.locality_name ? ` · ${j.locality_name}` : ''}</Text> : null}
+            {j.status === 'ACTIVE' ? <Text style={{ color: colors.warning, fontSize: font.xs, fontWeight: '700' }}>⏳ Accept or decline{j.expires_at ? ` by ${dateTime(j.expires_at)}` : ''}</Text> : null}
           </Card>
         ))}
       </Screen>
@@ -47,6 +49,18 @@ export function JobDetailScreen({ params }: { params: { id: string } }) {
   const [reason, setReason] = useState('');
   const [newTime, setNewTime] = useState('');
   const j = q.data;
+  const photos = useQuery(() => (j && ['CONFIRMED', 'IN_PROGRESS', 'COMPLETED'].includes(j.status)
+    ? api.get<any[]>(`/api/v1/partner/assignments/${params.id}/evidence`) : Promise.resolve([] as any[])), [j?.status]);
+  const addPhoto = async (purpose: 'BEFORE' | 'AFTER') => {
+    const pick = await DocumentPicker.getDocumentAsync({ type: ['image/*'], copyToCacheDirectory: true });
+    if (pick.canceled || !pick.assets?.length) return;
+    const a = pick.assets[0];
+    const fd = new FormData();
+    if (Platform.OS === 'web' && (a as any).file) fd.append('file', (a as any).file, a.name);
+    else fd.append('file', { uri: a.uri, name: a.name, type: a.mimeType ?? 'image/jpeg' } as any);
+    fd.append('purpose', purpose);
+    if (await act.run(() => api.upload(`/api/v1/partner/assignments/${params.id}/evidence`, fd))) photos.refresh();
+  };
 
   const call = async (path: string, body: object = {}) => {
     if (await act.run(() => api.post(`/api/v1/partner/assignments/${params.id}/${path}`, body))) {
@@ -70,7 +84,8 @@ export function JobDetailScreen({ params }: { params: { id: string } }) {
           <KeyValue k="Agreed price" v={money(price.total)} />
           {price.scope ? <KeyValue k="Scope" v={price.scope} /> : null}
           {j.booking_number ? <KeyValue k="Booking" v={j.booking_number} /> : null}
-          {j.scheduled_at ? <KeyValue k="Scheduled" v={dateTime(j.scheduled_at)} /> : null}
+          {j.scheduled_at || j.slot_start ? <KeyValue k="Scheduled" v={dateTime(j.scheduled_at ?? j.slot_start)} /> : null}
+          {j.booking_mode === 'PROVIDER_SELECTED' ? <Notice tone="info" message="The customer booked you directly for this time." /> : null}
         </Card>
         {j.customer_name || j.customer_phone ? (
           <Card>
@@ -84,7 +99,8 @@ export function JobDetailScreen({ params }: { params: { id: string } }) {
 
         {j.status === 'ACTIVE' ? (
           <Card>
-            <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>Your quotation was accepted</Text>
+            <Text style={{ fontWeight: '700', color: colors.text, marginBottom: space.sm }}>{j.booking_mode === 'PROVIDER_SELECTED' ? 'New booking for you' : 'Your quotation was accepted'}</Text>
+            {j.expires_at ? <Text style={{ color: colors.warning, marginBottom: space.sm }}>Accept by {dateTime(j.expires_at)} - after that it goes to another professional.</Text> : null}
             <Button title="Confirm booking" onPress={() => call('confirm')} loading={act.busy} />
             <Button title="Decline" variant="ghost" onPress={() => setDialog('decline')} />
           </Card>
@@ -114,6 +130,19 @@ export function JobDetailScreen({ params }: { params: { id: string } }) {
             <Text style={{ color: colors.textSecondary, marginBottom: space.sm }}>Ask the customer to check the work and share the COMPLETION OTP.</Text>
             <TextField label="Completion OTP" value={otp} onChangeText={setOtp} keyboardType="number-pad" maxLength={4} style={{ letterSpacing: 8, fontSize: 22, textAlign: 'center' }} />
             <Button title="Verify & complete" onPress={() => call('complete', { otp })} loading={act.busy} disabled={otp.length !== 4} />
+          </Card>
+        ) : null}
+        {['CONFIRMED', 'IN_PROGRESS', 'COMPLETED'].includes(j.status) ? (
+          <Card>
+            <Text style={{ fontWeight: '700', color: colors.text }}>📷 Work photos</Text>
+            <Text style={{ color: colors.textSecondary, fontSize: font.xs, marginBottom: space.sm }}>Before and after photos protect you and the customer. Only the customer, their agent and BUZZER see them.</Text>
+            <AttachmentList items={photos.data ?? []} showVisibility={false} />
+            {j.status !== 'COMPLETED' ? (
+              <Row style={{ marginTop: space.sm }}>
+                <Button title="＋ Before photo" small variant="outline" style={{ flex: 1 }} onPress={() => addPhoto('BEFORE')} />
+                <Button title="＋ After photo" small variant="outline" style={{ flex: 1 }} onPress={() => addPhoto('AFTER')} />
+              </Row>
+            ) : null}
           </Card>
         ) : null}
         {['COMPLETED', 'SETTLEMENT_PENDING', 'SETTLED'].includes(rs) ? <Notice tone="success" message={`${statusLabel(rs)}. Your earning is recorded in the Earnings tab.`} /> : null}

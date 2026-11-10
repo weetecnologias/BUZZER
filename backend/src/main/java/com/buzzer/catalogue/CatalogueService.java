@@ -96,7 +96,7 @@ public class CatalogueService {
         ServiceContext ctx = resolve(null, null, serviceId);
         Map<String, Object> row = jdbc.sql("""
                 SELECT i.id, i.code, i.name, i.description, i.image_url, i.original_price, i.deal_label, i.duration_label, i.pricing_type, i.base_price, i.min_price, i.max_price, i.unit,
-                       i.is_other, i.pay_on_delivery_allowed, s.id AS subcategory_id, s.name AS subcategory_name,
+                       i.duration_minutes, i.is_other, i.pay_on_delivery_allowed, s.id AS subcategory_id, s.name AS subcategory_name,
                        c.id AS category_id, c.name AS category_name, c.workflow_template, c.advisory_notice
                 FROM service_items i JOIN subcategories s ON s.id = i.subcategory_id JOIN categories c ON c.id = s.category_id
                 WHERE i.id = :id""").param("id", serviceId).query().listOfRows().getFirst();

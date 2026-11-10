@@ -106,6 +106,12 @@ public class ExecutionService {
     public void requestCompletion(UUID assignmentId, UUID partnerId, UUID partnerUserId) {
         Booking b = bookingForPartner(assignmentId, partnerId);
         RequestRepository.Row r = requests.lock(b.requestId());
+        if (settings.getBoolean("booking.completion_photo_required", false)) {
+            Integer photos = jdbc.sql("""
+                    SELECT count(*) FROM request_attachments WHERE request_id = :r AND uploader_role = 'PARTNER' AND purpose = 'AFTER' AND deleted_at IS NULL""")
+                    .param("r", r.id()).query(Integer.class).single();
+            if (photos == 0) throw BusinessException.invalid("Add a photo of the finished work (after photo) before asking the customer to confirm");
+        }
         requests.transition(r, RequestStatus.COMPLETION_PENDING, partnerUserId, "PARTNER", "Partner marked work complete");
         jdbc.sql("UPDATE bookings SET status = 'COMPLETION_PENDING' WHERE id = :id").param("id", b.id()).update();
         notifications.notifyUser(r.customerUserId(), "Work completed?", "Check the work and share the COMPLETION OTP if you are satisfied.",

@@ -158,6 +158,9 @@ export function CategoryScreen({ params }: { params: { categoryId: string; title
                     <Text key={t} style={{ color: colors.text }}><Text style={{ color: colors.emerald, fontWeight: '800' }}>{i + 1}. </Text>{t}</Text>
                   ))}
                 </View>
+                {!details.is_other && !['QUOTE_REQUIRED', 'API_PRICED'].includes(details.pricing_type) && workflow === 'MENU_DRIVEN' ? (
+                  <Button title="⚡ Book a time & professional" onPress={() => { const d = details; setDetails(null); nav.push('BookService', { serviceItemId: d.id, title: d.name }); }} />
+                ) : null}
                 {isCartable(details, workflow) ? (
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <AddControl id={details.id} />

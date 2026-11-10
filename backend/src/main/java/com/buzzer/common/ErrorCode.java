@@ -30,6 +30,8 @@ public enum ErrorCode {
     PRICE_CHANGED(HttpStatus.CONFLICT),
     /** A product is no longer sold / out of stock / below the minimum order quantity. */
     ITEM_UNAVAILABLE(HttpStatus.CONFLICT),
+    /** The chosen time / professional was just taken or is outside the bookable slots. */
+    SLOT_UNAVAILABLE(HttpStatus.CONFLICT),
     CONFLICT(HttpStatus.CONFLICT),
     INTEGRATION_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR);

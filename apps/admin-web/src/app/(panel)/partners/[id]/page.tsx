@@ -11,6 +11,7 @@ type Decision = { kind: "registration" | "kyc" | "capability"; id: string; decis
 export default function PartnerDetail() {
   const { id } = useParams<{ id: string }>();
   const { data: d, error, loading, reload } = useApi<any>(`admin/partners/${id}`, [id]);
+  const schedule = useApi<any>(`admin/partners/${id}/schedule`, [id]);
   const m = useMutation();
   const [pending, setPending] = useState<Decision | null>(null);
   const [note, setNote] = useState("");
@@ -61,6 +62,27 @@ export default function PartnerDetail() {
           </div>
         </Card>
       </div>
+      <Card title="Working hours & upcoming jobs (instant booking)">
+        {!schedule.data ? <Loading /> : (
+          <div className="grid grid-2">
+            <div>
+              {schedule.data.using_defaults ? <p className="muted small">Not set by the partner - Mon-Sat 09:00-19:00 assumed.</p> : null}
+              <table><tbody>{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((n, i) => {
+                const w = (schedule.data.weekly ?? []).filter((x: any) => x.weekday === i + 1);
+                return <tr key={n}><td className="muted">{n}</td><td>{w.length ? w.map((x: any) => `${x.start_time}-${x.end_time}`).join(", ") : "Off"}</td></tr>;
+              })}</tbody></table>
+              {(schedule.data.time_off ?? []).length ? <p className="small">Days off: {schedule.data.time_off.map((t: any) => t.starts_on === t.ends_on ? t.starts_on : `${t.starts_on} to ${t.ends_on}`).join("; ")}</p> : null}
+            </div>
+            <div>
+              {(schedule.data.upcoming_jobs ?? []).length ? (
+                <table><thead><tr><th>When</th><th>Request</th><th>Status</th></tr></thead><tbody>{schedule.data.upcoming_jobs.map((j: any) => (
+                  <tr key={j.assignment_id}><td>{j.starts_at ? when(j.starts_at) : "—"}</td><td><Link href={`/requests/${j.request_id}`}>{j.request_number}</Link></td><td><Status value={j.status} /></td></tr>
+                ))}</tbody></table>
+              ) : <p className="muted small">No upcoming jobs.</p>}
+            </div>
+          </div>
+        )}
+      </Card>
       <Card title="Service capabilities (each requires approval)">
         <table><thead><tr><th>Category</th><th>Subcategory</th><th>Service</th><th>Status</th><th>Requested</th><th /></tr></thead>
           <tbody>{d.capabilities.map((c: any) => (

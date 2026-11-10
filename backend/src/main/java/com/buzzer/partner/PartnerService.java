@@ -205,7 +205,8 @@ public class PartnerService {
 
     public List<Map<String, Object>> assignments(UUID partnerId, boolean activeOnly) {
         return jdbc.sql("""
-                SELECT a.id, a.assignment_number, a.status, a.created_at, a.price_snapshot::text AS price_snapshot, r.id AS request_id,
+                SELECT a.id, a.assignment_number, a.status, a.created_at, a.expires_at, a.price_snapshot::text AS price_snapshot, r.id AS request_id,
+                       r.preferred_start AS slot_start, r.preferred_end AS slot_end, r.booking_mode, l.name AS locality_name,
                        r.request_number, r.status AS request_status, c.name AS category_name, i.name AS service_name,
                        b.id AS booking_id, b.booking_number, b.status AS booking_status, b.scheduled_at,
                        CASE WHEN a.status IN ('CONFIRMED','IN_PROGRESS') THEN u.full_name END AS customer_name,
@@ -213,6 +214,7 @@ public class PartnerService {
                        CASE WHEN a.status IN ('CONFIRMED','IN_PROGRESS') THEN r.address_snapshot::text END AS address
                 FROM assignments a JOIN service_requests r ON r.id = a.request_id JOIN categories c ON c.id = r.category_id
                 LEFT JOIN service_items i ON i.id = r.service_item_id LEFT JOIN bookings b ON b.assignment_id = a.id
+                LEFT JOIN localities l ON l.id = r.locality_id
                 JOIN users u ON u.id = r.customer_user_id
                 WHERE a.partner_id = :p AND (NOT :active OR a.status IN ('ACTIVE','CONFIRMED','IN_PROGRESS'))
                 ORDER BY a.created_at DESC LIMIT 200""").param("p", partnerId).param("active", activeOnly).query().listOfRows();

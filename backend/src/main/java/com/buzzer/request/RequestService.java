@@ -83,9 +83,10 @@ public class RequestService {
                 ? (cmd.answers() == null ? Map.of() : cmd.answers())
                 : forms.validateAnswers(ctx.formSchema(), cmd.answers());
         String bookingMode = cmd.bookingMode() == null ? "AGENT_ASSISTED" : cmd.bookingMode();
-        if (!List.of("SELF", "AGENT_ASSISTED", "AGENT_DIRECT", "DIRECT_QUOTE").contains(bookingMode)) throw BusinessException.invalid("Invalid booking mode");
-        // DIRECT_QUOTE: partners quote straight to the customer; the subscriber's agent (if any) only watches.
-        boolean automated = "DIRECT_QUOTE".equals(bookingMode);
+        if (!List.of("SELF", "AGENT_ASSISTED", "AGENT_DIRECT", "DIRECT_QUOTE", "PROVIDER_SELECTED").contains(bookingMode)) throw BusinessException.invalid("Invalid booking mode");
+        // DIRECT_QUOTE: partners quote straight to the customer; PROVIDER_SELECTED: the customer booked a provider and slot.
+        // In both the subscriber's agent (if any) only watches.
+        boolean automated = "DIRECT_QUOTE".equals(bookingMode) || "PROVIDER_SELECTED".equals(bookingMode);
         String vertical = jdbc.sql("SELECT vertical FROM categories WHERE id = :c").param("c", ctx.categoryId()).query(String.class).single();
         RequestType requestType = RequestType.forCreation(bookingMode, vertical);
         if (cmd.description() != null && cmd.description().length() > 4000) throw BusinessException.invalid("Description too long");
@@ -167,6 +168,7 @@ public class RequestService {
                             case "SELF" -> "Customer booked menu items at listed prices";
                             case "AGENT_DIRECT" -> "Customer wrote directly to their agent";
                             case "DIRECT_QUOTE" -> "Customer asked verified partners for quotes";
+                            case "PROVIDER_SELECTED" -> "Customer booked a time slot with a professional of their choice";
                             case "AGENT_ASSISTED" -> "Customer sent the request to their agent";
                             default -> "Submitted by customer";
                         })
@@ -179,7 +181,8 @@ public class RequestService {
                     "Please review the details and confirm or correct them in the app.", "REQUEST_CONFIRMATION", "REQUEST", id);
         } else {
             notifications.notifyUser(cmd.customerUserId(), "Request " + number + " received",
-                    automated ? "We are sending it to verified partners now. Quotes will appear in the app as they arrive."
+                    "PROVIDER_SELECTED".equals(bookingMode) ? "We'll let you know as soon as your professional accepts the booking."
+                            : automated ? "We are sending it to verified partners now. Quotes will appear in the app as they arrive."
                             : "Your BUZZER agent will review it shortly.", "REQUEST_CREATED", "REQUEST", id);
             if (agentId != null && !automated) {
                 UUID agentUser = jdbc.sql("SELECT user_id FROM agents WHERE id = :a").param("a", agentId).query(UUID.class).single();

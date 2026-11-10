@@ -8,9 +8,97 @@ Plan: [transformation-plan.md](transformation-plan.md) · Audit: [transformation
 | 2. Architecture & database impact | ✅ Done, approved (all 7 recommended decisions) |
 | 3. Unified UI/UX & navigation | ✅ Done |
 | 4. Request engine | ✅ Done |
-| **5. Marketplace & RFQ** | ✅ **Done** — acceptance tests A, B, C, I, M pass |
-| 6. Services & provider workflows | ⏭ Next |
-| 7–10 | Planned |
+| 5. Marketplace & RFQ | ✅ Done |
+| **6. Services & provider workflows** | ✅ **Done** — acceptance test D passes |
+| 7. Agent & personal assistance | ⏭ Next |
+| 8–10 | Planned |
+
+---
+
+## Stage 6 — Services & provider workflows
+
+### Delivered
+
+**Instant booking (customer picks the time and the professional)**
+- For every fixed / starting-from / per-unit priced service: **slot picker** for the next 7 days (local time, 1-hour grid, earliest 90 minutes
+  ahead) showing how many professionals are free and the lowest price per slot.
+- **Provider matches** at the chosen slot: only approved, KYC-verified, available service providers with an approved capability, covering
+  the customer's locality / within their service radius and **free in their calendar**. Each shows rating, jobs done, distance and price
+  (their BUZZER-approved own price, else the listed price).
+- **Book**: the service's detail form, pay **after the service** (where allowed) or **online**; idempotent. Under the hood it reuses the
+  existing lifecycle — a price-list quotation from the chosen professional is accepted and paid, and the professional gets the exclusive
+  assignment (booking mode `PROVIDER_SELECTED`, request type `SERVICE_BOOKING`).
+- **No double booking**: bookings of one professional are serialised (row lock) and re-checked; the second customer for the same slot gets
+  409 `SLOT_UNAVAILABLE`. Slots off the grid or outside the booking window are refused.
+
+**Accept / decline**
+- The professional **accepts or declines** (existing confirm / decline) within the confirmation window (60 minutes, setting
+  `assignment.confirm_timeout_minutes`). Unanswered bookings are **released automatically** (sweep every minute).
+- After a decline or no answer the customer is notified and **chooses another professional for the same time at the price already booked**
+  (any payment carries over); professionals already tried are not offered again.
+
+**Provider calendar**
+- Weekly **working hours** (up to 3 windows a day), **days off**, upcoming jobs. Bookings respect hours, days off, existing jobs and a
+  30-minute **travel buffer** (setting). Existing providers start with Monday–Saturday 9:00–19:00. Adding days off that clash with booked
+  jobs returns those jobs so the provider can reschedule.
+
+**Completion evidence**
+- Professionals add **before / after photos** to a job (private to the customer, their agent and admins; signed links as in Stage 4) next
+  to the existing START / COMPLETE OTPs. Setting `booking.completion_photo_required` makes an after photo mandatory before asking the
+  customer to confirm completion. Every photo is on the timeline.
+
+**Apps**
+- Customer: **Book instantly** from the service details sheet and the request form → address, day, time, professional, details,
+  payment; request page shows "Booked for", a waiting-for-acceptance note, and **Choose another professional** after a decline; photos are
+  labelled "Before the work" / "Finished work".
+- Partner: **My calendar** (from My jobs) — working hours per weekday, days off, upcoming jobs; job list shows the slot and "accept by";
+  job detail adds **work photos** (before / after).
+- Admin: partner page shows working hours, days off and upcoming jobs; request attachments show the professional's photos.
+
+### Database migration (additive)
+- `V16__provider_availability_booking.sql` — `partner_availability`, `partner_time_off` (+ default hours backfill),
+  `service_items.duration_minutes`, booking mode `PROVIDER_SELECTED`, `request_attachments.purpose` and uploader role `PARTNER`, booking
+  settings.
+- Dev seed `V1004__dev_provider_calendars.sql` — hours for the seeded providers (Quick Fix Plumbers also Sunday mornings).
+
+### API contracts (new / changed)
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/api/v1/customer/services/{id}/slots?addressId&from&days` | customer | Days → slots with free-provider count and lowest price |
+| GET | `/api/v1/customer/services/{id}/providers?addressId&slot&quantity` | customer | Free providers at the slot: rating, jobs done, distance, price |
+| POST | `/api/v1/customer/bookings` | customer | `service_item_id, partner_id, slot_start, address_id, answers, payment_method, quantity`; `Idempotency-Key`; 409 `SLOT_UNAVAILABLE` |
+| GET | `/api/v1/customer/requests/{id}/alternatives` | customer (owner) | Other free providers for the same slot |
+| POST | `/api/v1/customer/requests/{id}/rebook` | customer (owner) | `partner_id`; same slot, same price |
+| GET / PUT | `/api/v1/partner/schedule` | partner | Weekly hours (`weekly: [{weekday, start_time, end_time}]`), days off, upcoming jobs |
+| POST / DELETE | `/api/v1/partner/schedule/time-off[/{id}]` | partner | `starts_on, ends_on, reason`; response lists clashing jobs |
+| POST / GET | `/api/v1/partner/assignments/{id}/evidence` | partner (own job) | multipart `file`, `purpose` BEFORE / AFTER |
+| POST | `/api/v1/partner/assignments/{id}/confirm`, `/decline` | partner | Existing endpoints = accept / reject a booking |
+| GET | `/api/v1/admin/partners/{id}/schedule` | admin | Provider calendar |
+| GET | `/api/v1/partner/assignments` | partner | Adds `slot_start`, `slot_end`, `booking_mode`, `expires_at`, `locality_name` |
+
+### Tests
+- `ServiceBookingFlowTest` (4):
+  - **D** slots → providers → book (pay after service) → idempotent retry → second customer blocked from the same professional and slot →
+    professional declines → customer notified → alternatives exclude him → rebook another at the same price → accept → booking at the
+    slot → on the calendar → arrive / START OTP / before photo → completion refused without an after photo (setting on) → after photo →
+    COMPLETE OTP → completed / settled; customer sees both photos; timeline tells the story; other partners can't add photos.
+  - Calendar: changed hours and a day off remove the provider from that slot; invalid hours refused; admin sees the calendar.
+  - Unanswered booking released by the sweep → `PARTNER_DECLINED`, assignment `EXPIRED`, slot free again.
+  - Quote-only services can't be booked instantly; off-grid times and other customers' addresses refused.
+- **Full suite: 59 passed, 0 failed.** Typecheck passes (customer, partner, agent, admin); admin production build passes.
+- Live check on the dev backend: Tap Repair slots for 7 days (Sunday only Quick Fix) → 3 plumbers compared → booked → accepted → calendar
+  shows the job → arrive / START OTP / after photo / COMPLETE OTP → settled with the photo on the request.
+- Browser (phone size): service details → Book a time & professional → address, days, slots with counts, professionals with jobs done and
+  distance, details form, payment, booking summary.
+
+### Rollback
+Revert the Stage 6 commit; V16 is additive (older code ignores the new tables, column and settings; `PROVIDER_SELECTED` requests keep
+working through the existing request lifecycle).
+
+### Not in Stage 6 (by plan)
+Partner-proposed alternative times for instant bookings (they can use the existing reschedule after accepting); provider ratings by
+service; agent drafts for bookings (Stage 7).
 
 ---
 
